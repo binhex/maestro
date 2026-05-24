@@ -3,16 +3,16 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "AppName"
+name = "maestro"
 version = "1.0.0"
-description = "Automated tool"
+description = "Music organizer"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [
     {name = "dev", email = "megalith01@gmail.com"}
 ]
-keywords = ["movie", "imdb", "automation", "torrent"]
+keywords = ["music", "organizer", "file-management", "automation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.scripts]
-AppName = "cli.main:cli"
+maestro = "maestro.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -69,7 +69,7 @@ ignore = [
 "tests/*" = ["S101"]      # assert usage in tests
 
 [tool.ruff.lint.isort]
-known-first-party = ["AppName"]
+known-first-party = ["maestro"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -96,7 +96,7 @@ addopts = """
     -ra
     --strict-markers
     --strict-config
-    --cov=src/AppName
+    --cov=src/maestro
     --cov-report=term-missing
     --cov-report=html
     --cov-report=xml
