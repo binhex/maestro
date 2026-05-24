@@ -45,7 +45,6 @@ _DEFAULT_LOGS_PATH = f"{_PROJECT_ROOT}/logs/maestro.log"
     metavar="<path>",
     help="Path to log file for tracking application events.",
 )
-
 @click.version_option(version=_VERSION, prog_name="maestro")
 def cli(
     database_path: str | None,
@@ -65,6 +64,7 @@ def cli(
     logger = create_logger(log_format=log_format, log_level=log_level, log_path=log_path)
 
     logger.info("WIP: CLI logic not yet implemented.")
+
 
 if __name__ == "__main__":
     cli()
