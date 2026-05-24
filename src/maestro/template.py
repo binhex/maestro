@@ -96,7 +96,6 @@ def render_path(variables: dict[str, str], pattern: str) -> str:
     """
     result = _VARIABLE_RE.sub(lambda m: variables.get(m.group(1), ""), pattern)
     # Collapse double separators from empty variables
-    # Collapse double separators from empty variables
     collapsed = re.sub(r"/{2,}", "/", result)
     # Use callable to avoid backslash-escaping issues in replacement
     collapsed = re.sub(r"\\{2,}", lambda m: "\\", collapsed)

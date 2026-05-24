@@ -127,6 +127,16 @@ def scan_download_root(
             created += 1
 
         for afile in files:
+            # Skip duplicate snapshots on re-scan
+            existing_snap = (
+                session.query(FileSystemSnapshot)
+                .filter(
+                    FileSystemSnapshot.path == str(afile),
+                )
+                .first()
+            )
+            if existing_snap is not None:
+                continue
             file_stat = afile.stat()
             snapshot = FileSystemSnapshot(
                 path=str(afile),

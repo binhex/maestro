@@ -416,7 +416,8 @@ def daemon(ctx: click.Context) -> None:
     session.close()
 
     click.echo("Starting Maestro daemon...")
-    daemon_instance = Daemon(config)
+    db_path = ctx.obj.get("database_path") if ctx.obj else None
+    daemon_instance = Daemon(config, db_path=db_path)
     daemon_instance.run()
 
 

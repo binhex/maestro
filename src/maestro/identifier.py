@@ -233,6 +233,33 @@ def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
         }
         if result.get("artist") or result.get("album"):
             return result
+        return None
+
+    # MP4/M4A tags (mutagen.mp4.MP4Tags with __getitem__ atoms)
+    if hasattr(tags, "__getitem__"):
+        # MP4 atoms used for common metadata
+        atoms_map: dict[str, list[str]] = {
+            "artist": ["\xa9ART", "aART", "----:com.apple.iTunes:Artist"],
+            "album": ["\xa9alb", "----:com.apple.iTunes:Album"],
+            "title": ["\xa9nam", "----:com.apple.iTunes:Title"],
+            "track": ["\xa9day", "----:com.apple.iTunes:Year"],
+            "genre": ["\xa9gen", "----:com.apple.iTunes:Genre"],
+        }
+        result = {}
+        for key, atoms in atoms_map.items():
+            for atom in atoms:
+                try:
+                    val = tags[atom]
+                    if val:
+                        if isinstance(val, list):
+                            result[key] = str(val[0])
+                        else:
+                            result[key] = str(val)
+                        break
+                except (KeyError, TypeError, IndexError):
+                    continue
+        if result.get("artist") or result.get("album"):
+            return result
 
     return None
 
@@ -355,7 +382,8 @@ def identify_download(download: Download, session: Session) -> None:
 
     # --- Update the download record ---
     download.identified_artist = artist_name
-    download.identified_album = album_title
+    # Coerce empty string album title to None for DB consistency
+    download.identified_album = album_title or None
     download.identified_year = year
     download.identified_genre = genre
     download.match_type = match_type

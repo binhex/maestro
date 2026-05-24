@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from maestro.db.models import Album, Artist, Download, Track
+from maestro.quality import compare_tracks
 from maestro.scanner import AUDIO_EXTENSIONS
 from maestro.template import render_path
 
@@ -245,6 +246,8 @@ def _process_download(
 
     # 2. Get or create Artist
     artist_name = download.identified_artist or "Unknown Artist"
+    # Sanitise artist name for filesystem safety (path separators)
+    artist_name = artist_name.replace("/", "_").replace("\\", "_")
     artist = _get_or_create_artist(session, artist_name)
 
     # 3. Get or create Album
@@ -279,7 +282,32 @@ def _process_download(
         counts["errors"] += 1
         return
 
+    # Build a lookup of existing tracks by filename for quality comparison
+    existing_tracks_by_name: dict[str, Track] = {}
+    for t in album.tracks or []:
+        if t.file_path:
+            name = Path(t.file_path).stem.lower()
+            existing_tracks_by_name[name] = t
+
     for afile in audio_files:
+        # Quality check: skip if library has equal or better quality
+        source_ext = afile.suffix.lstrip(".").upper()
+        track_key = afile.stem.lower()
+        existing = existing_tracks_by_name.get(track_key)
+        if existing is not None and existing.format:
+            decision = compare_tracks(
+                (existing.format, existing.bitrate),
+                (source_ext, None),
+            )
+            if decision in ("skip",):
+                logger.info(
+                    "Skipping {} — library has equal or better quality ({})",
+                    afile.name,
+                    existing.format,
+                )
+                counts["skipped"] += 1
+                continue
+
         _import_file(
             session=session,
             source_file=afile,
@@ -319,6 +347,8 @@ def _import_file(
     are managed by the caller (:func:`_process_download`).
     """
     stem = source_file.stem
+    # Sanitise filename stem: replace path separators and parent-dir refs
+    stem = stem.replace("/", "_").replace("\\", "_").replace("..", "_")
     ext = source_file.suffix.lstrip(".")
 
     variables: dict[str, str] = {

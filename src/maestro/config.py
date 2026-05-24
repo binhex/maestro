@@ -46,7 +46,7 @@ class ArtworkConfig:
     album_art: str = "cover.jpg"
     fanart: str = "fanart.jpg"
     skip_if_exists: bool = True
-    sources: list[str] = field(default_factory=lambda: ["musicbrainz", "lastfm", "discogs"])
+    sources: list[str] = field(default_factory=lambda: ["musicbrainz", "lastfm"])
 
 
 @dataclass

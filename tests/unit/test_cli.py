@@ -329,7 +329,7 @@ class TestDaemon:
         ):
             result = self.runner.invoke(cli, ["daemon"])
             assert result.exit_code == 0
-            mock_daemon_class.assert_called_once_with(mock_config)
+            mock_daemon_class.assert_called_once_with(mock_config, db_path=None)
             mock_daemon_instance.run.assert_called_once()
             assert mock_session.close.called
 

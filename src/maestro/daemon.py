@@ -53,14 +53,17 @@ def is_due(cron_expression: str, current_time: datetime | None = None) -> bool:
         current_time = datetime.now(UTC)
 
     try:
-        # Set the base time to just before current_time so that
-        # get_next() returns current_time when it matches the expression.
-        from datetime import timedelta  # noqa: PLC0415
-
-        just_before = current_time - timedelta(seconds=1)
-        cron = croniter(cron_expression, just_before)
-        next_match: datetime = cast("datetime", cron.get_next(datetime))
-        return next_match == current_time
+        # Check if current_time falls between the previous and next
+        # cron firing, within a 60-second window. This correctly handles
+        # microsecond precision and non-zero poll intervals.
+        cron = croniter(cron_expression, current_time)
+        prev_match: datetime = cast("datetime", cron.get_prev(datetime))
+        nxt_match: datetime = cast("datetime", cron.get_next(datetime))
+        # Due if current_time is within 60 seconds of either boundary
+        return (
+            abs((current_time - prev_match).total_seconds()) < 60
+            or abs((nxt_match - current_time).total_seconds()) < 60
+        )
     except (ValueError, KeyError):
         return False
 
@@ -172,16 +175,23 @@ class Daemon:
     supervisord, etc.) is expected to handle backgrounding.
     """
 
-    def __init__(self, config: Config | None) -> None:
-        """Initialise the daemon with the given *config*.
+    def __init__(
+        self,
+        config: Config | None,
+        db_path: str | None = None,
+    ) -> None:
+        """Initialise the daemon with the given *config* and *db_path*.
 
         Registers signal handlers for SIGTERM and SIGINT that set
         ``_shutdown_requested = True``.
 
         Args:
             config: The application configuration.  May be ``None``.
+            db_path: Path to the SQLite database.  If ``None``, uses
+                ``MAESTRO_DB`` env var, then default project path.
         """
         self.config: Config | None = config
+        self._db_path: str | None = db_path
         self._shutdown_requested: bool = False
         self._engine: Engine | None = None
         self._has_run_once: bool = False
@@ -224,11 +234,11 @@ class Daemon:
         if self.config is not None:
             import os  # noqa: PLC0415
 
-            db_path = os.environ.get("MAESTRO_DB", "")
+            db_path = self._db_path or os.environ.get("MAESTRO_DB", "")
             if not db_path:
                 from maestro.utils import get_project_root  # noqa: PLC0415
 
-                db_path = str(get_project_root() / "maestro.db")
+                db_path = str(get_project_root() / "db" / "maestro.db")
             self._engine = get_engine(db_path)
             from maestro.db.core import init_db  # noqa: PLC0415
 
