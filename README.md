@@ -1,10 +1,13 @@
-# AppName
+# Maestro
+
+Organise and manage your music library.
 
 This software is under *HEAVY* development right now, expect lack of documentation, major bugs and missing functionality.
 
 ## Description
 
-WIP
+Maestro scans your music directories, analyses metadata, and helps organise
+your collection by fixing tags, renaming files, and detecting duplicates.
 
 ## Prerequisites
 
@@ -16,8 +19,8 @@ WIP
 ### Installation
 
 ```bash
-git clone https://github.com/binhex/AppName
-cd AppName
+git clone https://github.com/binhex/maestro
+cd maestro
 uv venv --quiet
 uv sync
 ```
@@ -25,7 +28,7 @@ uv sync
 ### Usage
 
 ```bash
-AppName --help
+maestro --help
 ```
 
 ## Options
@@ -35,13 +38,13 @@ WIP
 ## Development
 
 ```bash
-git clone https://github.com/binhex/AppName
-cd AppName
+git clone https://github.com/binhex/maestro
+cd maestro
 uv venv --quiet
 uv sync --extra dev
 ```
 
-If you wish to perform linting on all files before committing (PR will nt be
+If you wish to perform linting on all files before committing (PR will not be
 accepted if it does not pass all linting) then run `pre-commit run --all-files`.
 
 ## FAQ
