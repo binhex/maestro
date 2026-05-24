@@ -242,7 +242,8 @@ def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
             "artist": ["\xa9ART", "aART", "----:com.apple.iTunes:Artist"],
             "album": ["\xa9alb", "----:com.apple.iTunes:Album"],
             "title": ["\xa9nam", "----:com.apple.iTunes:Title"],
-            "track": ["\xa9day", "----:com.apple.iTunes:Year"],
+            "track": ["\xa9trkn", "----:com.apple.iTunes:TrackNumber"],
+            "year": ["\xa9day", "----:com.apple.iTunes:Year"],
             "genre": ["\xa9gen", "----:com.apple.iTunes:Genre"],
         }
         result = {}

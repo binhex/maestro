@@ -56,14 +56,13 @@ def is_due(cron_expression: str, current_time: datetime | None = None) -> bool:
         # Check if current_time falls between the previous and next
         # cron firing, within a 60-second window. This correctly handles
         # microsecond precision and non-zero poll intervals.
-        cron = croniter(cron_expression, current_time)
+        # Check if the previous scheduled firing was within the last 60 seconds.
+        # Use just-after to include the exact current minute in get_prev().
+        from datetime import timedelta  # noqa: PLC0415
+
+        cron = croniter(cron_expression, current_time + timedelta(seconds=1))
         prev_match: datetime = cast("datetime", cron.get_prev(datetime))
-        nxt_match: datetime = cast("datetime", cron.get_next(datetime))
-        # Due if current_time is within 60 seconds of either boundary
-        return (
-            abs((current_time - prev_match).total_seconds()) < 60
-            or abs((nxt_match - current_time).total_seconds()) < 60
-        )
+        return abs((current_time - prev_match).total_seconds()) < 60
     except (ValueError, KeyError):
         return False
 

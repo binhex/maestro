@@ -31,6 +31,11 @@ _REPLACED_DIR = "_replaced"
 # ---------------------------------------------------------------------------
 
 
+def _fs_safe(name: str) -> str:
+    """Sanitise a filesystem component name (path separators, parent refs)."""
+    return name.replace("/", "_").replace("\\", "_").replace("..", "_")
+
+
 def _slugify(text: str) -> str:
     """Convert *text* to a filesystem-safe slug.
 
@@ -246,8 +251,7 @@ def _process_download(
 
     # 2. Get or create Artist
     artist_name = download.identified_artist or "Unknown Artist"
-    # Sanitise artist name for filesystem safety (path separators)
-    artist_name = artist_name.replace("/", "_").replace("\\", "_")
+    artist_name = _fs_safe(artist_name)
     artist = _get_or_create_artist(session, artist_name)
 
     # 3. Get or create Album
@@ -256,6 +260,7 @@ def _process_download(
         if album is None:
             # Referenced album was deleted — fall back to creating one
             album_title = download.identified_album or source.name
+            album_title = _fs_safe(album_title)
             album = _get_or_create_album(
                 session,
                 artist,
@@ -265,6 +270,7 @@ def _process_download(
             )
     else:
         album_title = download.identified_album or source.name
+        album_title = _fs_safe(album_title)
         album = _get_or_create_album(
             session,
             artist,
@@ -316,6 +322,7 @@ def _process_download(
             pattern=pattern,
             move=move,
             delete_replaced=delete_replaced,
+            counts=counts,
             artist_name=artist_name,
             album_title=album.title,
             year=album.year,
@@ -336,6 +343,7 @@ def _import_file(
     pattern: str,
     move: bool,
     delete_replaced: bool,
+    counts: dict[str, int],
     artist_name: str,
     album_title: str,
     year: int | None,
@@ -343,12 +351,10 @@ def _import_file(
 ) -> None:
     """Move or copy a single audio file into the library.
 
-    This function does **not** track replaced / imported counts — those
-    are managed by the caller (:func:`_process_download`).
+    This function tracks replaced counts via *counts*.
     """
     stem = source_file.stem
-    # Sanitise filename stem: replace path separators and parent-dir refs
-    stem = stem.replace("/", "_").replace("\\", "_").replace("..", "_")
+    stem = _fs_safe(stem)
     ext = source_file.suffix.lstrip(".")
 
     variables: dict[str, str] = {
@@ -375,6 +381,7 @@ def _import_file(
 
     # Handle replacement if target already exists
     if full_target.exists():
+        counts["replaced"] = counts.get("replaced", 0) + 1
         if delete_replaced:
             full_target.unlink()
             logger.debug("Deleted existing file: {}", full_target)

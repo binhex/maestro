@@ -65,10 +65,13 @@ def _setup(
     """
     config = load_config(config_path)
 
-    db_path = database_path or os.environ.get("MAESTRO_DB") or _DEFAULT_DB_PATH
-    assert ctx.parent is not None, "_setup must be called from a subcommand"
+    if ctx.parent is None:
+        raise click.UsageError("_setup must be called from a subcommand")
     log_level = ctx.parent.params.get("log_level", "INFO")
     log_path = ctx.parent.params.get("log_path") or _DEFAULT_LOGS_PATH
+    database_path = database_path or ctx.parent.params.get("database_path")
+    if not database_path:
+        database_path = os.environ.get("MAESTRO_DB") or _DEFAULT_DB_PATH
 
     create_logger(
         log_format=_DEFAULT_LOG_FORMAT,
@@ -76,7 +79,7 @@ def _setup(
         log_path=log_path,
     )
 
-    engine = get_engine(db_path)
+    engine = get_engine(database_path)
     init_db(engine)
     session = create_session(engine)
 

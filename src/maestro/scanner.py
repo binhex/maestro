@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -142,6 +143,7 @@ def scan_download_root(
                 path=str(afile),
                 file_hash=_get_file_hash(afile),
                 file_size=file_stat.st_size,
+                modified_at=datetime.fromtimestamp(file_stat.st_mtime, tz=UTC),
             )
             session.add(snapshot)
 
