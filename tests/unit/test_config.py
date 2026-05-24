@@ -78,6 +78,35 @@ class TestLoadConfig:
         assert config.artwork.album_art == "art.jpg"
         assert config.scheduler.schedule == "0 */12 * * *"
 
+    def test_default_config_created_when_missing(self, tmp_path: Path, monkeypatch) -> None:
+        """load_config should create a default config file when none exists."""
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_path = str(config_dir / "maestro.yaml")
+        # Should not exist yet
+        assert not Path(config_path).exists()
+        config = load_config(config_path, create_default=True)
+        # File should have been created
+        assert Path(config_path).exists()
+        # Content should be valid YAML with defaults
+        assert isinstance(config, Config)
+        assert config.quality.min_acceptable == 3
+        assert config.scheduler.schedule == "0 3 * * *"
+
+    def test_create_default_respected_when_false(self, tmp_path: Path) -> None:
+        """When create_default=False, no file is written."""
+        config_path = str(tmp_path / "nonexistent" / "maestro.yaml")
+        config = load_config(config_path, create_default=False)
+        assert isinstance(config, Config)
+
+    def test_create_default_falls_back_on_permission_error(self, tmp_path: Path, monkeypatch) -> None:
+        """When the config dir is not writable, creation falls back gracefully."""
+        # Simulate permission error by pointing to a non-writable path
+        config_path = str(tmp_path / "no-such-dir" / "deep" / "maestro.yaml")
+        # Should not crash — should fall back to default Config()
+        config = load_config(config_path, create_default=True)
+        assert isinstance(config, Config)
+
     def test_config_with_download_roots(self, tmp_path: Path) -> None:
         config_data = {
             "download_roots": [

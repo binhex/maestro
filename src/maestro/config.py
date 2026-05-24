@@ -97,12 +97,66 @@ class Config:
         )
 
 
-def load_config(config_path: str | None = None) -> Config:
+def _generate_default_yaml() -> str:
+    """Return a default config YAML string with all settings and examples."""
+    return yaml.dump({
+        "library_roots": [
+            {
+                "path": "/path/to/music/library",
+                "type": "library",
+                "enabled": True,
+                "pattern": "{artist}/{album}/{filename}.{ext}",
+            },
+        ],
+        "download_roots": [
+            {
+                "path": "/path/to/downloads",
+                "type": "download",
+                "enabled": True,
+                "pattern": "{downloader}/{album}",
+            },
+        ],
+        "quality": {
+            "min_acceptable": 3,
+            "delete_replaced": False,
+        },
+        "artwork": {
+            "album_art": "cover.jpg",
+            "fanart": "fanart.jpg",
+            "skip_if_exists": True,
+            "sources": ["musicbrainz", "lastfm"],
+        },
+        "scheduler": {
+            "schedule": "0 3 * * *",
+            "run_on_start": True,
+            "retry_failed": True,
+            "max_retries": 3,
+        },
+    }, default_flow_style=False, sort_keys=False)
+
+
+def _write_default_config(target_path: str) -> str:
+    """Write a default config YAML file to *target_path*.
+
+    Creates parent directories if they don't exist.
+
+    Returns:
+        The path where the config was written.
+    """
+    p = Path(target_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    content = _generate_default_yaml()
+    p.write_text(content)
+    return target_path
+
+
+def load_config(config_path: str | None = None, *, create_default: bool = True) -> Config:
     """Load configuration from a YAML file.
 
     If *config_path* is provided, only that path is tried.
-    Otherwise, the default search paths are checked in order, falling back
-    to a default ``Config()`` if no file is found.
+    Otherwise, the default search paths are checked in order.  If no file
+    is found and *create_default* is ``True``, a default config file is
+    written to the first writable default path.
     """
     paths_to_try = [config_path] if config_path else [p for p in _DEFAULT_CONFIG_PATHS if p]
 
@@ -114,5 +168,18 @@ def load_config(config_path: str | None = None) -> Config:
             with open(p) as f:
                 data = yaml.safe_load(f) or {}
             return Config.from_dict(data)
+
+    # No config file found — create a default one if requested
+    if create_default:
+        for target in paths_to_try:
+            if not target:
+                continue
+            try:
+                written = _write_default_config(target)
+                with open(written) as f:
+                    data = yaml.safe_load(f) or {}
+                return Config.from_dict(data)
+            except (OSError, PermissionError):
+                continue
 
     return Config()
