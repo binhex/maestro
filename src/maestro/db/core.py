@@ -1,0 +1,60 @@
+"""Database engine and session management."""
+
+from collections.abc import Generator
+from pathlib import Path
+
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from maestro.db.models import Base
+
+
+def get_engine(db_path: str, echo: bool = False) -> Engine:
+    """Create a SQLAlchemy engine for the given SQLite database path.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        echo: If True, log all SQL statements.
+
+    Returns:
+        A configured SQLAlchemy Engine instance.
+    """
+    # Ensure parent directory exists
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    return create_engine(f"sqlite:///{db_path}", echo=echo)
+
+
+def init_db(engine: Engine) -> None:
+    """Create all tables defined in the ORM models.
+
+    Safe to call multiple times; uses IF NOT EXISTS internally.
+    """
+    Base.metadata.create_all(engine)
+
+
+def create_session(engine: Engine) -> Session:
+    """Create a new session bound to the given engine.
+
+    Returns:
+        A SQLAlchemy Session instance.
+    """
+    session_factory = sessionmaker(bind=engine)
+    return session_factory()
+
+
+def get_session(engine: Engine) -> Generator[Session, None, None]:
+    """Yield a session as a context manager, closing it on exit.
+
+    Usage:
+        with get_session(engine) as session:
+            session.query(...)
+    """
+    session = create_session(engine)
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
