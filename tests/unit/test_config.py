@@ -2,10 +2,9 @@
 
 from pathlib import Path
 
-import pytest
 import yaml  # type: ignore[import-untyped]
 
-from maestro.config import Config, RootEntry, load_config
+from maestro.config import ArtworkConfig, Config, QualityConfig, RootEntry, SchedulerConfig, load_config
 
 
 class TestConfigDataclass:
@@ -60,6 +59,24 @@ class TestLoadConfig:
         config_path.write_text("")
         config = load_config(str(config_path))
         assert isinstance(config, Config)
+
+    def test_post_init_converts_dict_entries(self) -> None:
+        """__post_init__ should convert raw dicts to proper dataclass instances."""
+        config = Config(
+            library_roots=[{"path": "/lib", "type": "library", "pattern": "{a}"}],
+            download_roots=[{"path": "/dl", "type": "download"}],
+            quality={"min_acceptable": 7},
+            artwork={"album_art": "art.jpg"},
+            scheduler={"schedule": "0 */12 * * *"},
+        )
+        assert isinstance(config.library_roots[0], RootEntry)
+        assert isinstance(config.download_roots[0], RootEntry)
+        assert isinstance(config.quality, QualityConfig)
+        assert isinstance(config.artwork, ArtworkConfig)
+        assert isinstance(config.scheduler, SchedulerConfig)
+        assert config.quality.min_acceptable == 7
+        assert config.artwork.album_art == "art.jpg"
+        assert config.scheduler.schedule == "0 */12 * * *"
 
     def test_config_with_download_roots(self, tmp_path: Path) -> None:
         config_data = {

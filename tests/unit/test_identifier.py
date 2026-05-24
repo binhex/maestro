@@ -516,3 +516,246 @@ class TestIdentifyDownloads:
         assert len(results) == 1
         assert results[0].status == "error"
         session2.close()
+
+
+# ===================================================================
+# Tag-reading helper functions
+# ===================================================================
+
+
+class TestVorbisFirst:
+    """Tests for _vorbis_first."""
+
+    def test_returns_first_value(self) -> None:
+        result = mid._vorbis_first({"artist": ["Amon Tobin", "Other"]}, "artist")
+        assert result == "Amon Tobin"
+
+    def test_returns_none_for_missing_key(self) -> None:
+        result = mid._vorbis_first({"album": ["Test"]}, "artist")
+        assert result is None
+
+    def test_returns_none_for_empty_list(self) -> None:
+        result = mid._vorbis_first({"artist": []}, "artist")
+        assert result is None
+
+    def test_returns_none_on_exception(self) -> None:
+        result = mid._vorbis_first(None, "artist")
+        assert result is None
+
+
+class TestId3Text:
+    """Tests for _id3_text."""
+
+    def test_returns_text_from_frame(self) -> None:
+        class MockFrame:
+            def __str__(self) -> str:
+                return "Test Value"
+
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return [MockFrame()]
+
+        result = mid._id3_text(MockTags(), "TPE1")
+        assert result == "Test Value"
+
+    def test_returns_none_for_missing_frame(self) -> None:
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return []
+
+        result = mid._id3_text(MockTags(), "TPE1")
+        assert result is None
+
+    def test_returns_none_on_exception(self) -> None:
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                raise RuntimeError
+
+        result = mid._id3_text(MockTags(), "TPE1")
+        assert result is None
+
+
+class TestParseInt:
+    """Tests for _parse_int."""
+
+    def test_parses_valid_int(self) -> None:
+        assert mid._parse_int("42") == 42
+
+    def test_handles_whitespace(self) -> None:
+        assert mid._parse_int("  42  ") == 42
+
+    def test_returns_none_for_none(self) -> None:
+        assert mid._parse_int(None) is None
+
+    def test_returns_none_for_invalid(self) -> None:
+        assert mid._parse_int("not-a-number") is None
+
+
+class TestId3Track:
+    """Tests for _id3_track."""
+
+    def test_simple_track_number(self) -> None:
+        class MockFrame:
+            def __str__(self) -> str:
+                return "3"
+
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return [MockFrame()]
+
+        result = mid._id3_track(MockTags(), "TRCK")
+        assert result == 3
+
+    def test_track_with_total(self) -> None:
+        class MockFrame:
+            def __str__(self) -> str:
+                return "3/12"
+
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return [MockFrame()]
+
+        result = mid._id3_track(MockTags(), "TRCK")
+        assert result == 3
+
+    def test_returns_none_when_missing(self) -> None:
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return []
+
+        result = mid._id3_track(MockTags(), "TRCK")
+        assert result is None
+
+
+class TestReadId3Tags:
+    """Tests for _read_id3_tags with mocked extraction."""
+
+    def test_returns_none_for_empty_dir(self, tmp_path: Path, mocker) -> None:
+        """A directory with no audio files returns None."""
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        result = mid._read_id3_tags(empty_dir)
+        assert result is None
+
+    def test_returns_none_when_extract_returns_none(self, tmp_path: Path, mocker) -> None:
+        """When _extract_tags_from_file returns None, _read_id3_tags returns None."""
+        dl_dir = tmp_path / "album"
+        dl_dir.mkdir()
+        (dl_dir / "track.flac").write_text("data")
+        mocker.patch("maestro.identifier._extract_tags_from_file", return_value=None)
+        result = mid._read_id3_tags(dl_dir)
+        assert result is None
+
+    def test_returns_tags_when_found(self, tmp_path: Path, mocker) -> None:
+        """When a file has tags, they are returned."""
+        dl_dir = tmp_path / "album"
+        dl_dir.mkdir()
+        (dl_dir / "track.flac").write_text("data")
+        expected = {"artist": "Test", "album": "Album", "title": "Track"}
+        mocker.patch("maestro.identifier._extract_tags_from_file", return_value=expected)
+        result = mid._read_id3_tags(dl_dir)
+        assert result == expected
+
+    def test_returns_tags_from_first_file_with_tags(self, tmp_path: Path, mocker) -> None:
+        """Skips files without tags, returns first with tags."""
+        dl_dir = tmp_path / "album"
+        dl_dir.mkdir()
+        (dl_dir / "track1.flac").write_text("data")
+        (dl_dir / "track2.flac").write_text("data")
+        mocker.patch(
+            "maestro.identifier._extract_tags_from_file",
+            side_effect=[None, {"artist": "Found"}],
+        )
+        result = mid._read_id3_tags(dl_dir)
+        assert result == {"artist": "Found"}
+
+
+class TestExtractTagsFromFile:
+    """Tests for _extract_tags_from_file with mocked mutagen."""
+
+    def test_extract_flac_tags(self, tmp_path: Path, mocker) -> None:
+        """Extract tags from a FLAC file with mocked mutagen."""
+        fpath = tmp_path / "track.flac"
+        fpath.write_text("dummy")
+
+        mock_flac = mocker.MagicMock()
+        mock_flac.tags = {
+            "artist": ["Artist"],
+            "album": ["Album"],
+            "title": ["Title"],
+            "tracknumber": ["3"],
+            "date": ["2024"],
+            "genre": ["Electronic"],
+        }
+        mocker.patch("mutagen.flac.FLAC", return_value=mock_flac)
+
+        result = mid._extract_tags_from_file(fpath)
+        assert result is not None
+        assert result["artist"] == "Artist"
+        assert result["album"] == "Album"
+        assert result["title"] == "Title"
+        assert result["track"] == 3
+        assert result["year"] == 2024
+
+    def test_extract_flac_no_tags(self, tmp_path: Path, mocker) -> None:
+        """FLAC file with no tags returns None."""
+        fpath = tmp_path / "track.flac"
+        fpath.write_text("dummy")
+
+        mock_flac = mocker.MagicMock()
+        mock_flac.tags = None
+        mocker.patch("mutagen.flac.FLAC", return_value=mock_flac)
+
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
+
+    def test_extract_non_audio_returns_none(self, tmp_path: Path, mocker) -> None:
+        """Non-audio file returns None."""
+        fpath = tmp_path / "readme.txt"
+        fpath.write_text("hello")
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
+
+    def test_extract_flac_exception_returns_none(self, tmp_path: Path, mocker) -> None:
+        """FLAC extraction exception returns None."""
+        fpath = tmp_path / "track.flac"
+        fpath.write_text("dummy")
+        mocker.patch("mutagen.flac.FLAC", side_effect=RuntimeError("corrupt"))
+
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
+
+    def test_extract_mp3_tags(self, tmp_path: Path, mocker) -> None:
+        """Extract tags from an MP3 file with mocked ID3."""
+        fpath = tmp_path / "track.mp3"
+        fpath.write_text("dummy")
+
+        class MockFrame:
+            """Mock ID3 frame."""
+
+            def __str__(self) -> str:
+                return "Value"
+
+        class MockID3:
+            """Mock ID3 tags."""
+
+            def getall(self, frame_id: str):
+                return [MockFrame()]
+
+        # MP3 files use mutagen.id3.ID3, not mutagen.mp3.MP3
+        mocker.patch("mutagen.id3.ID3", return_value=MockID3())
+
+        result = mid._extract_tags_from_file(fpath)
+        assert result is not None
+
+    def test_extract_other_audio(self, tmp_path: Path, mocker) -> None:
+        """Non-FLAC/MP3 audio uses generic mutagen.File."""
+        fpath = tmp_path / "track.ogg"
+        fpath.write_text("dummy")
+
+        mock_file = mocker.MagicMock()
+        mock_file.tags = {"artist": ["Artist"]}
+        mocker.patch("mutagen.File", return_value=mock_file)
+
+        result = mid._extract_tags_from_file(fpath)
+        assert result is not None
