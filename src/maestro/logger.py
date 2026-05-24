@@ -1,4 +1,4 @@
-"""Logging utilities for trimarr."""
+"""Logging utilities for maestro."""
 
 from __future__ import annotations
 
