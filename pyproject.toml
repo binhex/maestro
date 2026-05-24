@@ -86,7 +86,7 @@ mypy_path = "src"
 
 # Relax for tests
 [[tool.mypy.overrides]]
-module = "tests.*"
+module = ["tests.*"]
 disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
