@@ -90,7 +90,7 @@ mypy_path = "src"
 module = ["tests.*"]
 disallow_untyped_defs = false
 ignore_missing_imports = true
-disable_error_code = ["list-item"]
+disable_error_code = ["list-item", "arg-type", "no-untyped-def"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

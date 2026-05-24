@@ -16,6 +16,11 @@ from maestro.identifier import (
     parse_filename_heuristic,
 )
 
+
+def _test_path(p: Path) -> str:
+    return str(p)
+
+
 # ===================================================================
 # parse_filename_heuristic
 # ===================================================================
