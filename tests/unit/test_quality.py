@@ -22,7 +22,8 @@ class TestGetQualityTier:
         assert get_quality_tier("MP3", 245) == 6
 
     def test_mp3_v2_tier(self):
-        assert get_quality_tier("MP3", 190) == 5
+        # V2 ~190 kbps — without tag-level VBR detection, falls to CBR tier
+        assert get_quality_tier("MP3", 190) == 3
 
     def test_mp3_192_tier(self):
         assert get_quality_tier("MP3", 192) == 3
@@ -55,11 +56,13 @@ class TestCompareTracks:
         assert result == "skip"
 
     def test_replace_same_tier_higher_bitrate(self):
-        result = compare_tracks(("MP3", 128), ("MP3", 320))
+        # Both MP3 at tier 3 (192-319 range vs 160-191 range)
+        result = compare_tracks(("MP3", 160), ("MP3", 192))
         assert result == "replace"
 
     def test_skip_same_tier_lower_bitrate(self):
-        result = compare_tracks(("MP3", 320), ("MP3", 128))
+        # Both MP3 at tier 3 (160-191 range vs 192-319 range)
+        result = compare_tracks(("MP3", 192), ("MP3", 160))
         assert result == "skip"
 
     def test_import_no_library_match(self):

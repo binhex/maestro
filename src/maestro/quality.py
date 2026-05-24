@@ -16,12 +16,11 @@ _QUALITY_TIERS: dict[str, int] = {
 
 
 _MP3_BITRATE_THRESHOLDS: list[tuple[int, int]] = [
-    (320, 7),
-    (245, 6),
-    (191, 3),  # CBR 192+
-    (190, 5),  # V2 (VBR, ~190 kbps avg) — higher quality than CBR at same bitrate
-    (160, 3),  # CBR 160-189
-    (128, 1),  # CBR 128-159
+    (320, 7),   # 320+ kbps CBR
+    (245, 6),   # V0 / 245+ kbps
+    (192, 3),   # ~192 kbps CBR
+    (160, 3),   # CBR 160-191
+    (128, 1),   # CBR 128-159
 ]
 
 
