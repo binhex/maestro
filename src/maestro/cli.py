@@ -1,21 +1,21 @@
-"""Command-line interface for AppName."""
+"""Command-line interface for Maestro."""
 
 from importlib.metadata import PackageNotFoundError, version
 
 import click
 
-from appname.logger import create_logger
-from appname.utils import get_project_root
+from maestro.logger import create_logger
+from maestro.utils import get_project_root
 
 try:
-    _VERSION = version("AppName")
+    _VERSION = version("maestro")
 except PackageNotFoundError:
     _VERSION = "unknown"
 
-# Compute default database path (project_root/db/AppName.db)
+# Compute default database path (project_root/db/maestro.db)
 _PROJECT_ROOT = get_project_root()
-_DEFAULT_DB_PATH = f"{_PROJECT_ROOT}/db/AppName.db"
-_DEFAULT_LOGS_PATH = f"{_PROJECT_ROOT}/logs/trimarr.log"
+_DEFAULT_DB_PATH = f"{_PROJECT_ROOT}/db/maestro.db"
+_DEFAULT_LOGS_PATH = f"{_PROJECT_ROOT}/logs/maestro.log"
 
 
 @click.command()
@@ -26,7 +26,7 @@ _DEFAULT_LOGS_PATH = f"{_PROJECT_ROOT}/logs/trimarr.log"
     default=_DEFAULT_DB_PATH,
     show_default=True,
     metavar="<path>",
-    help="Path to SQLite database file for tracking processed files.",
+    help="Path to SQLite database file for tracking music library state.",
 )
 @click.option(
     "--log-level",
@@ -46,19 +46,17 @@ _DEFAULT_LOGS_PATH = f"{_PROJECT_ROOT}/logs/trimarr.log"
     help="Path to log file for tracking application events.",
 )
 
-@click.version_option()
-@click.version_option(version=_VERSION, prog_name="AppName")
+@click.version_option(version=_VERSION, prog_name="maestro")
 def cli(
     database_path: str | None,
     log_level: str,
     log_path: str,
 ) -> None:
-    """AppName - Short description.
+    """Maestro - Organise and manage your music library.
 
-    Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
-    aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-    Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur
-    sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+    Maestro scans your music directories, analyses metadata, and helps
+    organise your collection by fixing tags, renaming files, and
+    detecting duplicates.
     """
 
     # Logger format for consistent output styling
