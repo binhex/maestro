@@ -1,6 +1,8 @@
 """Database engine and session management."""
 
 from collections.abc import Generator
+from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine
@@ -32,16 +34,28 @@ def init_db(engine: Engine) -> None:
     Base.metadata.create_all(engine)
 
 
+@lru_cache(maxsize=16)
+def _make_session_factory(dsn: str) -> sessionmaker:
+    """Create and cache a sessionmaker for the given DSN.
+
+    Cached to avoid recreating sessionmaker on every call.
+    The DSN acts as cache key since engines with the same DSN
+    share the same factory.
+    """
+    engine = create_engine(dsn)
+    return sessionmaker(bind=engine)
+
+
 def create_session(engine: Engine) -> Session:
     """Create a new session bound to the given engine.
 
     Returns:
         A SQLAlchemy Session instance.
     """
-    session_factory = sessionmaker(bind=engine)
-    return session_factory()
+    return _make_session_factory(engine.url.render_as_string(hide_password=False))()
 
 
+@contextmanager
 def get_session(engine: Engine) -> Generator[Session, None, None]:
     """Yield a session as a context manager, closing it on exit.
 

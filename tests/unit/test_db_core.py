@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, inspect
 from sqlalchemy.exc import IntegrityError
 
-from maestro.db.core import create_session, get_engine, init_db
+from maestro.db.core import create_session, get_engine, get_session, init_db
 from maestro.db.models import Artist
 
 
@@ -45,4 +45,27 @@ class TestDbCore:
         # Verify no data was committed
         session2 = create_session(engine)
         assert session2.query(Artist).count() == 0
+        session2.close()
+
+    def test_get_session_commits_and_closes(self, engine: Engine) -> None:
+        """get_session context manager should commit and close on success."""
+        with get_session(engine) as session:
+            artist = Artist(name="Context Artist", slug="context-artist")
+            session.add(artist)
+        # The data should be persisted after context manager exits
+        with get_session(engine) as verify_session:
+            count = verify_session.query(Artist).filter_by(name="Context Artist").count()
+            assert count == 1
+
+    def test_get_session_rolls_back_on_error(self, engine: Engine) -> None:
+        """get_session context manager should rollback and close on exception."""
+        with pytest.raises(ValueError, match="test error"):
+            with get_session(engine) as session:
+                artist = Artist(name="Rollback Artist", slug="rollback-artist")
+                session.add(artist)
+                # This should trigger a rollback
+                raise ValueError("test error")
+        # Verify no data was committed
+        session2 = create_session(engine)
+        assert session2.query(Artist).filter_by(name="Rollback Artist").count() == 0
         session2.close()
