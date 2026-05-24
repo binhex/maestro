@@ -59,12 +59,11 @@ class TestDbCore:
 
     def test_get_session_rolls_back_on_error(self, engine: Engine) -> None:
         """get_session context manager should rollback and close on exception."""
-        with pytest.raises(ValueError, match="test error"):
-            with get_session(engine) as session:
-                artist = Artist(name="Rollback Artist", slug="rollback-artist")
-                session.add(artist)
-                # This should trigger a rollback
-                raise ValueError("test error")
+        with pytest.raises(ValueError, match="test error"), get_session(engine) as session:
+            artist = Artist(name="Rollback Artist", slug="rollback-artist")
+            session.add(artist)
+            # This should trigger a rollback
+            raise ValueError("test error")
         # Verify no data was committed
         session2 = create_session(engine)
         assert session2.query(Artist).filter_by(name="Rollback Artist").count() == 0

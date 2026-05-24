@@ -2,26 +2,27 @@
 
 from pathlib import Path
 
-import yaml
+import pytest
+import yaml  # type: ignore[import-untyped]
 
-from maestro.config import Config, load_config
+from maestro.config import Config, RootEntry, load_config
 
 
 class TestConfigDataclass:
-    def test_default_config(self):
+    def test_default_config(self) -> None:
         config = Config()
         assert config.quality.min_acceptable == 3
         assert config.quality.delete_replaced is False
         assert config.artwork.album_art == "cover.jpg"
         assert config.scheduler.schedule == "0 3 * * *"
 
-    def test_merged_config(self):
+    def test_merged_config(self) -> None:
         config = Config(
             library_roots=[
-                {"path": "/music/lib", "type": "library", "pattern": "{artist}/{album}"},
+                RootEntry(path="/music/lib", type="library", pattern="{artist}/{album}"),
             ],
             download_roots=[
-                {"path": "/downloads", "type": "download", "pattern": "{downloader}/{album}"},
+                RootEntry(path="/downloads", type="download", pattern="{downloader}/{album}"),
             ],
         )
         assert len(config.library_roots) == 1
@@ -30,7 +31,7 @@ class TestConfigDataclass:
 
 
 class TestLoadConfig:
-    def test_load_from_file(self, tmp_path: Path):
+    def test_load_from_file(self, tmp_path: Path) -> None:
         config_data = {
             "library_roots": [
                 {"path": "/music", "type": "library", "pattern": "{artist}/{album}"},
@@ -49,18 +50,18 @@ class TestLoadConfig:
         assert config.quality.min_acceptable == 5
         assert config.quality.delete_replaced is True
 
-    def test_file_not_found_returns_defaults(self):
+    def test_file_not_found_returns_defaults(self) -> None:
         config = load_config("/nonexistent/path.yaml")
         assert isinstance(config, Config)
         assert config.scheduler.schedule == "0 3 * * *"
 
-    def test_empty_config_file_returns_defaults(self, tmp_path: Path):
+    def test_empty_config_file_returns_defaults(self, tmp_path: Path) -> None:
         config_path = tmp_path / "empty.yaml"
         config_path.write_text("")
         config = load_config(str(config_path))
         assert isinstance(config, Config)
 
-    def test_config_with_download_roots(self, tmp_path: Path):
+    def test_config_with_download_roots(self, tmp_path: Path) -> None:
         config_data = {
             "download_roots": [
                 {"path": "/dl", "type": "download", "pattern": "{user}/{album}"},

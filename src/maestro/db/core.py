@@ -52,7 +52,10 @@ def create_session(engine: Engine) -> Session:
     Returns:
         A SQLAlchemy Session instance.
     """
-    return _make_session_factory(engine.url.render_as_string(hide_password=False))()
+    dsn = str(engine.url.render_as_string(hide_password=False))
+    factory = _make_session_factory(dsn)
+    session: Session = factory()
+    return session
 
 
 @contextmanager
