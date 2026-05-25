@@ -114,7 +114,7 @@ class TestFetchAlbumArtMusicBrainz:
         mock_search = mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
         mocker.patch("musicbrainzngs.set_useragent")
@@ -154,7 +154,7 @@ class TestFetchAlbumArtMusicBrainz:
         mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
         mocker.patch("musicbrainzngs.set_useragent")
@@ -458,7 +458,7 @@ class TestDownloadArtworkForAlbum:
         mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
 
@@ -520,7 +520,7 @@ class TestDownloadArtworkForAlbum:
         mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
 
@@ -584,7 +584,7 @@ class TestDownloadArtworkForAlbum:
         mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
 
@@ -617,7 +617,7 @@ class TestDownloadArtworkForAlbum:
         mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
 
@@ -701,7 +701,7 @@ class TestDownloadArtworkForAlbum:
         mocker.patch(
             "musicbrainzngs.search_releases",
             return_value={
-                "release-list": [{"id": "abc-123"}],
+                "release-list": [{"id": "abc-123", "title": "Test Album", "artist-credit": [{"artist": {"name": "Test Artist"}}]}],
             },
         )
 

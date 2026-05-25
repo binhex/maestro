@@ -41,6 +41,32 @@ def get_artwork_paths(
     }
 
 
+def _get_mb_artist_name(release: dict) -> str:
+    """Extract the artist name from a MusicBrainz release dict."""
+    artist_credit: list = release.get("artist-credit", [])
+    if artist_credit:
+        first = artist_credit[0]
+        if isinstance(first, dict) and "artist" in first:
+            artist_info = first["artist"]
+            if isinstance(artist_info, dict):
+                name_val = artist_info.get("name", "")
+                return str(name_val) if name_val else ""
+        return str(first) if first else ""
+    return ""
+
+
+def _artists_match(query: str, result: str) -> bool:
+    """Check if the queried artist matches the returned artist name."""
+    return query.lower().strip() == result.lower().strip()
+
+
+def _titles_match(query: str, result: str) -> bool:
+    """Check if the queried album title matches the returned title."""
+    q = " ".join(query.lower().split())
+    r = " ".join(result.lower().split())
+    return q == r
+
+
 def fetch_album_art_musicbrainz(artist: str, album: str) -> bytes | None:
     """Fetch album art from MusicBrainz via the Cover Art Archive.
 
@@ -72,7 +98,16 @@ def fetch_album_art_musicbrainz(artist: str, album: str) -> bytes | None:
         if not releases:
             return None
 
-        release_id = releases[0]["id"]
+        # Verify the returned release actually matches what we searched for.
+        # MusicBrainz may return a compilation or misattributed release.
+        release = releases[0]
+        release_title = (release.get("title") or "").lower()
+        release_artist = _get_mb_artist_name(release)
+
+        if not _artists_match(artist, release_artist) or not _titles_match(album, release_title):
+            return None
+
+        release_id = release["id"]
 
         url = f"https://coverartarchive.org/release/{release_id}/front"
         resp = requests.get(url, headers=_HEADERS, timeout=15)
@@ -188,7 +223,7 @@ def download_artwork_for_album(
     sources: list[str] | None = None,
     max_width: int = 500,
     max_height: int = 500,
-    aspect_tolerance_percentage: int = 15,
+    aspect_tolerance_percentage: int = 5,
 ) -> dict[str, bool | str | None]:
     """Download album art and fanart for a given album.
 
