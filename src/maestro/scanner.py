@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -175,20 +176,24 @@ def _create_artist_album_track(
     """
     from maestro.db.models import Album, Artist, Track
 
-    # Get or create Artist
-    artist = session.query(Artist).filter_by(name=artist_name).first()
+    # Get or create Artist (case-insensitive lookup)
+    artist = session.query(Artist).filter(Artist.name.ilike(artist_name)).first()
     if not artist:
-        slug = artist_name.lower().replace(" ", "-").replace("/", "-")
+        slug = re.sub(r"\s+", "-", artist_name.lower())
+        slug = re.sub(r"[^a-z0-9-]", "", slug)
         artist = Artist(name=artist_name, slug=slug)
         session.add(artist)
         session.flush()
+    else:
+        # Use canonical casing from existing record
+        artist_name = artist.name
 
-    # Get or create Album
+    # Get or create Album (case-insensitive lookup within artist)
     album = (
         session.query(Album)
-        .filter_by(
-            artist_id=artist.id,
-            title=album_title,
+        .filter(
+            Album.artist_id == artist.id,
+            Album.title.ilike(album_title),
         )
         .first()
     )
@@ -233,11 +238,9 @@ def scan_library_root(
 
     Returns:
         Dict with keys ``"artists"``, ``"albums"``, ``"tracks"``
-        counting newly created records.
+        counting records present after the scan.
     """
     counts: dict[str, int] = {"artists": 0, "albums": 0, "tracks": 0}
-
-    from maestro.scanner import _is_audio_file
 
     root = Path(root_path)
     if not root.is_dir():
@@ -248,6 +251,8 @@ def scan_library_root(
         if not artist_dir.is_dir():
             continue
         artist_name = artist_dir.name
+
+        artist_has_albums = False
 
         for album_dir in sorted(artist_dir.iterdir()):
             if not album_dir.is_dir():
@@ -269,8 +274,9 @@ def scan_library_root(
 
             if album_has_tracks:
                 counts["albums"] += 1
+                artist_has_albums = True
 
-        if counts["albums"] > 0 or any(p.is_dir() for p in artist_dir.iterdir()):
+        if artist_has_albums:
             counts["artists"] += 1
 
     session.commit()
