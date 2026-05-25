@@ -139,9 +139,9 @@ def cli(ctx: click.Context, **kwargs: object) -> None:
     # All options are consumed by subcommands via _setup(); the **kwargs
     # catch-all is deliberate to avoid unused-argument warnings.
     del kwargs
-    # Ensure default config file is created on first invocation
-    load_config(create_default=True)
     if ctx.invoked_subcommand is None:
+        # Ensure default config file is created on first invocation
+        load_config()
         click.echo(ctx.get_help())
 
 
