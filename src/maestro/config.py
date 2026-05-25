@@ -99,7 +99,30 @@ class Config:
 
 def _generate_default_yaml() -> str:
     """Return a default config YAML string with all settings and examples."""
-    return yaml.dump(  # type: ignore[no-any-return]
+    comment = (
+        "# Maestro Configuration\n"
+        "#\n"
+        "# Available path pattern variables:\n"
+        "#   {artist}     - Artist name (from ID3 tag or heuristic)\n"
+        "#   {album}      - Album title (from ID3 tag or heuristic)\n"
+        "#   {title}      - Track title (from ID3 tag)\n"
+        "#   {track}      - Track number (from ID3 tag or parsed filename)\n"
+        "#   {year}       - Release year (from ID3 tag)\n"
+        "#   {genre}      - Genre (from ID3 tag)\n"
+        "#   {subgenre}   - Subgenre (from ID3 tag or path-extracted)\n"
+        "#   {filename}   - File basename without extension\n"
+        "#   {ext}        - File extension (e.g. flac, mp3)\n"
+        "#   {format}     - Normalised format (e.g. FLAC, MP3)\n"
+        "#   {bitrate}    - Audio bitrate in kbps\n"
+        "#   {path}       - Full original path to the file\n"
+        "#   {downloader} - Downloader name (extracted from download path)\n"
+        "#   {owner}      - Library owner (extracted from library path)\n"
+        "#   {type}       - Media type (extracted from library path)\n"
+        "#   {hash}       - File hash (first 8 hex chars)\n"
+        "#\n"
+        "# Missing variables are silently collapsed from the path.\n"
+    )
+    return comment + yaml.dump(  # type: ignore[no-any-return]
         {
             "library_roots": [
                 {

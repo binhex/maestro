@@ -48,9 +48,35 @@ maestro --help
 
 Maestro can be configured via a YAML file at one of these locations:
 - `$MAESTRO_CONFIG` environment variable
-- `./maestro.yaml` (project root)
+- `./configs/maestro.yaml` (project root)
 - `~/.config/maestro/maestro.yaml`
 - `~/.maestro.yaml`
+
+### Path pattern variables
+
+The `pattern` field in library and download roots supports these variables.
+They are replaced with metadata from ID3 tags or extracted from folder/file names.
+
+| Variable | Source | Example |
+|----------|--------|--------|
+| `{artist}` | ID3 tag or folder heuristic | `Amon Tobin` |
+| `{album}` | ID3 tag or folder heuristic | `Bricolage` |
+| `{title}` | ID3 tag | `Bricolage` |
+| `{track}` | ID3 tag or parsed filename | `01` |
+| `{year}` | ID3 tag | `1997` |
+| `{genre}` | ID3 tag | `Electronic` |
+| `{subgenre}` | ID3 tag or path-extracted | `Ambient` |
+| `{filename}` | File basename (no extension) | `01 - Bricolage` |
+| `{ext}` | File extension | `flac` |
+| `{format}` | Normalised format | `FLAC` |
+| `{bitrate}` | Audio bitrate (kbps) | `1411` |
+| `{path}` | Full original path | `/downloads/user/Bricolage` |
+| `{downloader}` | Extracted from download path | `user123` |
+| `{owner}` | Extracted from library path | `Paul` |
+| `{type}` | Extracted from library path | `Albums` |
+| `{hash}` | File hash (hex) | `a1b2c3d4` |
+
+Missing variables are silently collapsed from the resulting path.
 
 ```yaml
 library_roots:
@@ -73,7 +99,6 @@ artwork:
   sources:
     - musicbrainz
     - lastfm
-    - discogs
 
 scheduler:
   schedule: "0 3 * * *"
