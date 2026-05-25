@@ -358,66 +358,53 @@ def _read_id3_tags(directory: str) -> dict[str, Any] | None:
     return None
 
 
-def identify_download(download: Download, session: Session) -> None:
-    """Identify metadata for a single download.
+# ---------------------------------------------------------------------------
+# Download identification
+# ---------------------------------------------------------------------------
 
-    Steps:
 
-    1. Skip (return early) if ``download.source_path`` is not an existing
-       directory.
-    2. Attempt to read ID3 / Vorbis tags from audio files in the directory.
-    3. If tags are present, extract ``artist``, ``album``, ``year``, and
-       ``genre``.
-    4. If no tags are found, fall back to :func:`parse_filename_heuristic`
-       on the folder name.
-    5. Query the library for a matching ``Artist`` + ``Album``.
-    6. Update the ``Download`` record with identified metadata.
+def _identify_tags_or_heuristic(
+    download: Download,
+) -> tuple:
+    """Read tags or fall back to heuristic for a download.
 
-    Args:
-        download: The ``Download`` record to update (modified in place).
-        session: Active SQLAlchemy session.
+    Returns:
+        Tuple of (artist_name, album_title, year, genre, match_type).
     """
     dl_path = Path(download.source_path)
-
-    if not dl_path.is_dir():
-        logger.debug("Download path {} is not a directory — skipping", dl_path)
-        return
-
-    # --- Attempt tag reading ---
     tags = _read_id3_tags(download.source_path)
 
     if tags is not None:
-        artist_name: str | None = tags.get("artist")
-        album_title: str | None = tags.get("album")
-        year: int | None = tags.get("year")
-        genre: str | None = tags.get("genre")
-        match_type: str | None = "exact"
-        logger.debug(
-            "Extracted tags from {}: artist={}, album={}",
-            dl_path,
-            artist_name,
-            album_title,
-        )
-    else:
-        # --- Fall back to heuristic ---
-        folder_name = dl_path.name
-        artist_name, album_title = parse_filename_heuristic(folder_name)
-        year = None
-        genre = None
-        match_type = None
-        logger.debug(
-            "Heuristic parse of '{}': artist={}, album={}",
-            folder_name,
-            artist_name,
-            album_title,
+        return (
+            tags.get("artist"),
+            tags.get("album"),
+            tags.get("year"),
+            tags.get("genre"),
+            "exact",
         )
 
-    # --- Try to match against existing library ---
+    folder_name = dl_path.name
+    artist_name, album_title = parse_filename_heuristic(folder_name)
+    return artist_name, album_title, None, None, None
+
+
+def _resolve_identified_album(
+    session: Session,
+    artist_name: str | None,
+    album_title: str | None,
+    year: int | None,
+    genre: str | None,
+    match_type: str | None,
+) -> tuple[int | None, int | None, str | None, str | None, str | None]:
+    """Match against library and return updated values.
+
+    Returns:
+        Tuple of (identified_album_id, year, genre, artist_name, match_type).
+    """
     identified_album_id = _match_to_library(session, artist_name, album_title, year, genre)
     if identified_album_id is not None:
         if match_type is None:
             match_type = "exact"
-        # Fill in year / genre from library match when download has none
         if year is None or genre is None:
             lib_album = session.get(Album, identified_album_id)
             if lib_album is not None:
@@ -425,20 +412,34 @@ def identify_download(download: Download, session: Session) -> None:
                     year = lib_album.year
                 if genre is None:
                     genre = lib_album.genre
+    return identified_album_id, year, genre, artist_name, match_type
 
-    # --- Update the download record ---
+
+def identify_download(download: Download, session: Session) -> None:
+    """Identify metadata for a single download."""
+    dl_path = Path(download.source_path)
+    if not dl_path.is_dir():
+        logger.debug("Download path {} is not a directory — skipping", dl_path)
+        return
+
+    artist_name, album_title, year, genre, match_type = _identify_tags_or_heuristic(download)
+    identified_album_id, year, genre, artist_name, match_type = _resolve_identified_album(
+        session,
+        artist_name,
+        album_title,
+        year,
+        genre,
+        match_type,
+    )
+
     download.identified_artist = artist_name
-    # Coerce empty string album title to None for DB consistency
     download.identified_album = album_title or None
     download.identified_year = year
     download.identified_genre = genre
     download.match_type = match_type
     download.identified_album_id = identified_album_id
-
     if artist_name or album_title:
         download.status = "identified"
-    # else leave as "new"
-
     session.flush()
 
 

@@ -264,7 +264,7 @@ class TestTag:
     def test_tag_no_tracks(self) -> None:
         """Tag with no tracks should show message."""
         mock_session = Mock()
-        mock_session.query.return_value.join.return_value.join.return_value.all.return_value = []
+        mock_session.query.return_value.all.return_value = []
         mock_setup = Mock(return_value=(Mock(), Mock(), mock_session))
 
         with patch("maestro.cli._setup", mock_setup):
@@ -276,12 +276,9 @@ class TestTag:
         """Tag --clear should call clear_tags."""
         mock_track = Mock()
         mock_track.file_path = "/music/track.flac"
-        mock_track.album = None
 
         mock_session = Mock()
-        mock_session.query.return_value.join.return_value.join.return_value.all.return_value = [
-            mock_track,
-        ]
+        mock_session.query.return_value.all.return_value = [mock_track]
         mock_setup = Mock(return_value=(Mock(), Mock(), mock_session))
 
         mock_clear = Mock(return_value=True)

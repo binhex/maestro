@@ -229,66 +229,47 @@ def import_downloads(
     return counts
 
 
-def _process_download(
+def _resolve_artist_and_album(
     session: Session,
     download: Download,
-    dest_root: Path,
-    pattern: str,
-    move: bool,
-    delete_replaced: bool,
-    counts: dict[str, int],
-) -> None:
-    """Process a single identified download record."""
-    source = Path(download.source_path)
-
-    # 1. Source directory exists?
-    if not source.is_dir():
-        logger.warning("Source directory missing: {}", source)
-        download.status = "error"
-        download.error_message = "source directory does not exist"
-        counts["errors"] += 1
-        return
-
-    # 2. Get or create Artist
+    source: Path,
+) -> tuple[Artist, Album, str, str]:
+    """Resolve or create Artist and Album for a download."""
     artist_name = download.identified_artist or "Unknown Artist"
     artist_name = _fs_safe(artist_name)
     artist = _get_or_create_artist(session, artist_name)
 
-    # 3. Get or create Album
+    album_title = _fs_safe(download.identified_album or source.name)
+
     if download.identified_album_id is not None:
         album = session.get(Album, download.identified_album_id)
         if album is None:
-            # Referenced album was deleted — fall back to creating one
-            album_title = download.identified_album or source.name
-            album_title = _fs_safe(album_title)
             album = _get_or_create_album(
-                session,
-                artist,
-                album_title,
-                year=download.identified_year,
-                genre=download.identified_genre,
+                session, artist, album_title,
+                year=download.identified_year, genre=download.identified_genre,
             )
     else:
-        album_title = download.identified_album or source.name
-        album_title = _fs_safe(album_title)
         album = _get_or_create_album(
-            session,
-            artist,
-            album_title,
-            year=download.identified_year,
-            genre=download.identified_genre,
+            session, artist, album_title,
+            year=download.identified_year, genre=download.identified_genre,
         )
+    return artist, album, artist_name, album_title
 
-    # 4. Process each audio file
-    audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
-    if not audio_files:
-        logger.warning("No audio files found in {}", source)
-        download.status = "error"
-        download.error_message = "no audio files found in source directory"
-        counts["errors"] += 1
-        return
 
-    # Build a lookup of existing tracks by filename for quality comparison
+def _import_audio_files(
+    session: Session,
+    album: Album,
+    source: Path,
+    audio_files: list,
+    dest_root: Path,
+    pattern: str,
+    move: bool,
+    delete_replaced: bool,
+    artist_name: str,
+    album_title: str,
+    counts: dict[str, int],
+) -> None:
+    """Import audio files with quality comparison and file operations."""
     existing_tracks_by_name: dict[str, Track] = {}
     for t in album.tracks or []:
         if t.file_path:
@@ -296,7 +277,6 @@ def _process_download(
             existing_tracks_by_name[name] = t
 
     for afile in audio_files:
-        # Quality check: skip if library has equal or better quality
         source_ext = afile.suffix.lstrip(".").upper()
         track_key = afile.stem.lower()
         existing = existing_tracks_by_name.get(track_key)
@@ -329,7 +309,55 @@ def _process_download(
             genre=album.genre,
         )
 
-    # 5. Update download status
+
+def _process_download(
+    session: Session,
+    download: Download,
+    dest_root: Path,
+    pattern: str,
+    move: bool,
+    delete_replaced: bool,
+    counts: dict[str, int],
+) -> None:
+    """Process a single identified download record."""
+    source = Path(download.source_path)
+
+    if not source.is_dir():
+        logger.warning("Source directory missing: {}", source)
+        download.status = "error"
+        download.error_message = "source directory does not exist"
+        counts["errors"] += 1
+        return
+
+    artist, album, artist_name, album_title = _resolve_artist_and_album(
+        session,
+        download,
+        source,
+    )
+
+    audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
+    if not audio_files:
+        logger.warning("No audio files found in {}", source)
+        download.status = "error"
+        download.error_message = "no audio files found in source directory"
+        counts["errors"] += 1
+        return
+
+    _import_audio_files(
+        session=session,
+        album=album,
+        source=source,
+        audio_files=audio_files,
+        dest_root=dest_root,
+        pattern=pattern,
+        move=move,
+        delete_replaced=delete_replaced,
+        artist_name=artist_name,
+        album_title=album_title,
+        counts=counts,
+    )
+
+    # Update download status
     download.status = "imported"
     counts["imported"] += 1
     logger.info("Imported download id={} from {}", download.id, source)

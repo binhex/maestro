@@ -151,6 +151,47 @@ def cli(ctx: click.Context, **kwargs: object) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _run_library_scan(
+    session: Session,
+    config: Config,
+    roots: tuple[str, ...],
+) -> None:
+    """Scan library roots and report results."""
+    from maestro.scanner import scan_library_root
+
+    paths = list(roots) if roots else [r.path for r in config.library_roots if r.enabled]
+    if not paths:
+        click.echo("No library roots to scan.")
+        return
+    for root in paths:
+        click.echo(f"Scanning library {root}...")
+        result = scan_library_root(session, root)
+        click.echo(
+            f"  Result: artists={result['artists']} albums={result['albums']} tracks={result['tracks']}",
+        )
+    click.echo("Library scan complete.")
+
+
+def _run_download_scan(
+    session: Session,
+    config: Config,
+    roots: tuple[str, ...],
+) -> None:
+    """Scan download roots and report results."""
+    from maestro.scanner import scan_download_root
+
+    paths = list(roots) if roots else [r.path for r in config.download_roots if r.enabled]
+    if not paths:
+        click.echo("No download roots to scan.")
+        return
+    for root in paths:
+        click.echo(f"Scanning {root}...")
+        result = scan_download_root(session, root)
+        click.echo(
+            f"  Result: created={result['created']} skipped={result['skipped']}",
+        )
+
+
 @cli.command()
 @click.argument(
     "roots",
@@ -165,42 +206,13 @@ def cli(ctx: click.Context, **kwargs: object) -> None:
 )
 @click.pass_context
 def scan(ctx: click.Context, roots: tuple[str, ...], library: bool) -> None:
-    """Scan directories for music files.
-
-    By default, scans download directories for new files to import.
-    Use ``--library`` to scan an existing music library and populate
-    the database with its Artist, Album, and Track records.
-    """
-    from maestro.scanner import scan_download_root, scan_library_root
-
+    """Scan directories for music files."""
     config, _engine, session = _setup(ctx)
     try:
         if library:
-            paths_to_scan = list(roots) if roots else [r.path for r in config.library_roots if r.enabled]
-            if not paths_to_scan:
-                click.echo("No library roots to scan.")
-                return
-            for root in paths_to_scan:
-                click.echo(f"Scanning library {root}...")
-                result = scan_library_root(session, root)
-                click.echo(
-                    f"  Result: artists={result['artists']} albums={result['albums']} tracks={result['tracks']}",
-                )
-            click.echo("Library scan complete.")
-            return
-
-        paths_to_scan = list(roots) if roots else [r.path for r in config.download_roots if r.enabled]
-
-        if not paths_to_scan:
-            click.echo("No download roots to scan.")
-            return
-
-        for root in paths_to_scan:
-            click.echo(f"Scanning {root}...")
-            result = scan_download_root(session, root)
-            click.echo(
-                f"  Result: created={result['created']} skipped={result['skipped']}",
-            )
+            _run_library_scan(session, config, roots)
+        else:
+            _run_download_scan(session, config, roots)
     finally:
         session.close()
 
@@ -318,6 +330,38 @@ def import_(ctx: click.Context) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _write_tags_for_tracks(tracks: list) -> None:
+    """Write metadata tags to all tracks in the list."""
+    from maestro.tagger import write_tags
+
+    click.echo(f"Writing tags on {len(tracks)} track(s)...")
+    for track in tracks:
+        artist_name = track.album.artist.name if track.album and track.album.artist else None
+        album_title = track.album.title if track.album else None
+        year = track.album.year if track.album else None
+        genre = track.album.genre if track.album else None
+        ok = write_tags(
+            file_path=track.file_path,
+            artist=artist_name,
+            album=album_title,
+            title=track.title,
+            track_number=track.track_number,
+            year=year,
+            genre=genre,
+        )
+        click.echo(f"  {'Tagged' if ok else 'Failed'}: {track.file_path}")
+
+
+def _clear_tags_for_tracks(tracks: list) -> None:
+    """Clear all ID3 tags from tracks in the list."""
+    from maestro.tagger import clear_tags
+
+    click.echo(f"Clearing tags on {len(tracks)} track(s)...")
+    for track in tracks:
+        if clear_tags(track.file_path):
+            click.echo(f"  Cleared: {track.file_path}")
+
+
 @cli.command()
 @click.option(
     "--clear",
@@ -328,48 +372,20 @@ def import_(ctx: click.Context) -> None:
 @click.pass_context
 def tag(ctx: click.Context, clear: bool) -> None:
     """Write or clear metadata tags on imported tracks."""
-    from maestro.db.models import Album, Artist, Track
-    from maestro.tagger import clear_tags, write_tags
+    from maestro.db.models import Track
 
     _config, _engine, session = _setup(ctx)
     try:
-        tracks = (
-            session.query(Track)
-            .join(Album, Track.album_id == Album.id, isouter=True)
-            .join(Artist, Album.artist_id == Artist.id, isouter=True)
-            .all()
-        )
+        tracks = session.query(Track).all()
 
         if not tracks:
             click.echo("No tracks found to tag.")
             return
 
         if clear:
-            click.echo(f"Clearing tags on {len(tracks)} track(s)...")
-            for track in tracks:
-                if clear_tags(track.file_path):
-                    click.echo(f"  Cleared: {track.file_path}")
-            return
-
-        click.echo(f"Writing tags on {len(tracks)} track(s)...")
-        for track in tracks:
-            artist_name = track.album.artist.name if track.album and track.album.artist else None
-            album_title = track.album.title if track.album else None
-            year = track.album.year if track.album else None
-            genre = track.album.genre if track.album else None
-            ok = write_tags(
-                file_path=track.file_path,
-                artist=artist_name,
-                album=album_title,
-                title=track.title,
-                track_number=track.track_number,
-                year=year,
-                genre=genre,
-            )
-            if ok:
-                click.echo(f"  Tagged: {track.file_path}")
-            else:
-                click.echo(f"  Failed: {track.file_path}")
+            _clear_tags_for_tracks(tracks)
+        else:
+            _write_tags_for_tracks(tracks)
     finally:
         session.close()
 
