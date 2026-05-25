@@ -125,42 +125,7 @@ def _generate_default_yaml() -> str:
         "# Missing variables are silently collapsed from the path.\n"
     )
     return comment + yaml.dump(  # type: ignore[no-any-return]
-        {
-            "library_roots": [
-                {
-                    "path": "/path/to/music/library",
-                    "type": "library",
-                    "enabled": True,
-                    "pattern": "{artist}/{album}/{filename}.{ext}",
-                },
-            ],
-            "download_roots": [
-                {
-                    "path": "/path/to/downloads",
-                    "type": "download",
-                    "enabled": True,
-                    "pattern": "{downloader}/{album}",
-                },
-            ],
-            "quality": {
-                "min_acceptable": 3,
-                "delete_replaced": False,
-            },
-            "artwork": {
-                "album_art": "cover.jpg",
-                "fanart": "fanart.jpg",
-                "skip_if_exists": True,
-                "sources": ["musicbrainz", "lastfm"],
-                "width": 500,
-                "height": 500,
-            },
-            "scheduler": {
-                "schedule": "0 3 * * *",
-                "run_on_start": True,
-                "retry_failed": True,
-                "max_retries": 3,
-            },
-        },
+        _default_config_dict(),
         default_flow_style=False,
         sort_keys=False,
     )
@@ -181,6 +146,64 @@ def _write_default_config(target_path: str) -> str:
     return target_path
 
 
+def _default_config_dict() -> dict:
+    """Return the default config as a plain dict for comparison."""
+    return {
+        "library_roots": [
+            {
+                "path": "/path/to/music/library",
+                "type": "library",
+                "enabled": True,
+                "pattern": "{artist}/{album}/{filename}.{ext}",
+            },
+        ],
+        "download_roots": [
+            {"path": "/path/to/downloads", "type": "download", "enabled": True, "pattern": "{downloader}/{album}"},
+        ],
+        "quality": {"min_acceptable": 3, "delete_replaced": False},
+        "artwork": {
+            "album_art": "cover.jpg",
+            "fanart": "fanart.jpg",
+            "skip_if_exists": True,
+            "sources": ["musicbrainz", "lastfm"],
+            "width": 500,
+            "height": 500,
+        },
+        "scheduler": {
+            "schedule": "0 3 * * *",
+            "run_on_start": True,
+            "retry_failed": True,
+            "max_retries": 3,
+        },
+    }
+
+
+def _upgrade_config(data: dict, file_path: str) -> dict:
+    """Add any missing keys from the default config to *data*.
+
+    Only adds keys that don't exist — never removes or overwrites user values.
+    Returns the (possibly updated) data dict. Saves the file if changes were made.
+    """
+    defaults = _default_config_dict()
+    changed = False
+
+    for section, section_defaults in defaults.items():
+        if section not in data:
+            data[section] = section_defaults
+            changed = True
+        elif isinstance(section_defaults, dict) and isinstance(data[section], dict):
+            for key, val in section_defaults.items():
+                if key not in data[section]:
+                    data[section][key] = val
+                    changed = True
+
+    if changed:
+        with open(file_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+    return data
+
+
 def _try_load(path: str) -> Config | None:
     """Try to load a Config from *path*. Returns None if not found."""
     if not path:
@@ -189,6 +212,7 @@ def _try_load(path: str) -> Config | None:
     if p.exists() and p.is_file():
         with open(p) as f:
             data = yaml.safe_load(f) or {}
+        data = _upgrade_config(data, str(p))
         return Config.from_dict(data)
     return None
 

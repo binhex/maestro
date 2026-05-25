@@ -19,8 +19,6 @@ from maestro.artwork import (
 
 def _test_image(width: int = 300, height: int = 300) -> bytes:
     """Create a test image and return JPEG bytes."""
-    from PIL import Image as PilImage
-    import io
     img = PilImage.new("RGB", (width, height), color="red")
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=95)
