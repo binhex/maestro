@@ -957,3 +957,44 @@ class TestDownloadArtworkForAlbum:
         )
 
         assert result == {"album_art": False, "fanart": False, "source_used": None}
+
+    def test_duckduckgo_is_tried_first(self, tmp_path, mocker) -> None:
+        """When duckduckgo is first in sources, it's tried before musicbrainz."""
+        from maestro.artwork import download_artwork_for_album
+        from PIL import Image
+        import io
+
+        album_dir = tmp_path / "DuckFirst"
+        album_dir.mkdir()
+
+        img = Image.new("RGB", (500, 500), color="green")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=95)
+        fake_image = buf.getvalue()
+
+        # Mock DDG search to return a result
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = [
+            {"image": "https://example.com/ddg.jpg"},
+        ]
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        # Mock requests.get to return valid image
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = fake_image
+        mocker.patch("maestro.artwork.requests.get", return_value=mock_response)
+
+        # Mock musicbrainzngs — should NOT be called
+        mock_mb = mocker.patch("musicbrainzngs.search_releases")
+
+        result = download_artwork_for_album(
+            album_dir=str(album_dir),
+            artist="Test Artist",
+            album="Test Album",
+            sources=["duckduckgo", "musicbrainz"],
+        )
+
+        assert result["album_art"] is True
+        assert result["source_used"] == "duckduckgo"
+        mock_mb.assert_not_called()

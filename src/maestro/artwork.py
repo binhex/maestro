@@ -329,7 +329,9 @@ def download_artwork_for_album(
     else:
         for source in sources:
             data: bytes | None = None
-            if source == "musicbrainz":
+            if source == "duckduckgo":
+                data = fetch_album_art_duckduckgo(artist, album)
+            elif source == "musicbrainz":
                 data = fetch_album_art_musicbrainz(artist, album)
             elif source == "lastfm":
                 data = fetch_album_art_lastfm(artist, album, lastfm_api_key)
