@@ -134,6 +134,28 @@ class TestScan:
             assert result.exit_code == 0
             assert "No download roots to scan" in result.output
 
+    def test_scan_library_flag(self) -> None:
+        """Scan --library should call scan_library_root for each library root."""
+        mock_config = Mock()
+        mock_config.library_roots = [
+            Mock(path="/music/lib1", enabled=True),
+            Mock(path="/music/lib2", enabled=True),
+        ]
+        mock_session = Mock()
+        mock_setup = Mock(return_value=(mock_config, Mock(), mock_session))
+
+        mock_lib_scan = Mock(return_value={"artists": 3, "albums": 5, "tracks": 20})
+
+        with (
+            patch("maestro.cli._setup", mock_setup),
+            patch("maestro.scanner.scan_library_root", mock_lib_scan),
+        ):
+            result = self.runner.invoke(cli, ["scan", "--library"])
+            assert result.exit_code == 0
+            # Should have called scan_library_root twice (once per library root)
+            assert mock_lib_scan.call_count == 2
+            assert "Library scan complete" in result.output
+
 
 class TestIdentify:
     """Tests for the ``identify`` subcommand."""

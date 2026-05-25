@@ -162,17 +162,38 @@ def cli(ctx: click.Context, **kwargs: object) -> None:
     nargs=-1,
     type=click.Path(exists=True, file_okay=False, resolve_path=True),
 )
+@click.option(
+    "--library",
+    is_flag=True,
+    default=False,
+    help="Scan library roots instead of download roots.",
+)
 @click.pass_context
-def scan(ctx: click.Context, roots: tuple[str, ...]) -> None:
-    """Scan download directories for new music files.
+def scan(ctx: click.Context, roots: tuple[str, ...], library: bool) -> None:
+    """Scan directories for music files.
 
-    If ROOTS are provided, scan those directories.  Otherwise use the
-    download roots from the configuration file.
+    By default, scans download directories for new files to import.
+    Use ``--library`` to scan an existing music library and populate
+    the database with its Artist, Album, and Track records.
     """
-    from maestro.scanner import scan_download_root
+    from maestro.scanner import scan_download_root, scan_library_root
 
     config, _engine, session = _setup(ctx)
     try:
+        if library:
+            paths_to_scan = list(roots) if roots else [r.path for r in config.library_roots if r.enabled]
+            if not paths_to_scan:
+                click.echo("No library roots to scan.")
+                return
+            for root in paths_to_scan:
+                click.echo(f"Scanning library {root}...")
+                result = scan_library_root(session, root)
+                click.echo(
+                    f"  Result: artists={result['artists']} albums={result['albums']} tracks={result['tracks']}",
+                )
+            click.echo("Library scan complete.")
+            return
+
         paths_to_scan = list(roots) if roots else [r.path for r in config.download_roots if r.enabled]
 
         if not paths_to_scan:

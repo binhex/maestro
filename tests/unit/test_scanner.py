@@ -1,5 +1,6 @@
 """Tests for maestro.scanner."""
 
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -237,3 +238,123 @@ class TestScannerDetectsCdSubdirectories:
         assert count == 1
         snap_count = session2.query(FileSystemSnapshot).count()
         assert snap_count == 2
+
+
+# ===================================================================
+# scan_library_root / _create_artist_album_track
+# ===================================================================
+
+
+class TestScanLibraryRoot:
+    """Tests for scan_library_root and _create_artist_album_track."""
+
+    @pytest.fixture
+    def engine(self, tmp_path: Path) -> Generator[Engine, None, None]:
+        db_path = tmp_path / "test.db"
+        eng = get_engine(str(db_path), echo=False)
+        init_db(eng)
+        yield eng
+        eng.dispose()
+
+    def test_create_artist_album_track_creates_records(self, engine: Engine, tmp_path: Path) -> None:
+        """_create_artist_album_track should create Artist, Album, and Track records."""
+        from maestro.db.models import Album, Artist, Track
+        from maestro.scanner import _create_artist_album_track
+
+        session = create_session(engine)
+        track_file = _make_audio_file(tmp_path, "Artist Name/Album Name/01 Track.flac")
+
+        result = _create_artist_album_track(
+            session=session,
+            artist_name="Artist Name",
+            album_title="Album Name",
+            track_path=track_file,
+        )
+        session.commit()
+
+        assert result is not None, "_create_artist_album_track should return a Track record"
+        assert isinstance(result, Track)
+        assert result.title == "01 Track"
+        assert result.file_path == str(track_file)
+        assert result.file_size > 0
+
+        artist = session.query(Artist).filter_by(name="Artist Name").first()
+        assert artist is not None
+        assert artist.slug == "artist-name"
+
+        album = session.query(Album).filter_by(title="Album Name").first()
+        assert album is not None
+        assert album.artist_id == artist.id
+
+        session.close()
+
+    def test_create_artist_album_track_idempotent(self, engine: Engine, tmp_path: Path) -> None:
+        """Calling _create_artist_album_track twice should not create duplicate records."""
+        from maestro.db.models import Album, Artist, Track
+        from maestro.scanner import _create_artist_album_track
+
+        session = create_session(engine)
+        track_file = _make_audio_file(tmp_path, "Artist/Album/track.flac")
+
+        result1 = _create_artist_album_track(
+            session=session,
+            artist_name="Artist",
+            album_title="Album",
+            track_path=track_file,
+        )
+        result2 = _create_artist_album_track(
+            session=session,
+            artist_name="Artist",
+            album_title="Album",
+            track_path=track_file,
+        )
+        session.commit()
+
+        assert result1 is not None
+        assert result2 is not None
+        assert result1.id == result2.id, "Should return same Track on duplicate call"
+
+        artists = session.query(Artist).count()
+        albums = session.query(Album).count()
+        tracks = session.query(Track).count()
+        assert artists == 1
+        assert albums == 1
+        assert tracks == 1
+
+        session.close()
+
+    def test_scan_library_root_walks_tree(self, engine: Engine, tmp_path: Path) -> None:
+        """scan_library_root should walk a library tree and create DB records."""
+        from maestro.scanner import scan_library_root
+
+        lib_root = tmp_path / "Music"
+        _make_audio_file(lib_root, "Artist A/Album One/track1.flac")
+        _make_audio_file(lib_root, "Artist A/Album One/track2.flac")
+        _make_audio_file(lib_root, "Artist A/Album Two/track1.flac")
+        _make_audio_file(lib_root, "Artist B/Album One/track1.flac")
+
+        session = create_session(engine)
+        result = scan_library_root(session, lib_root)
+        session.commit()
+
+        assert result["artists"] == 2
+        assert result["albums"] == 3
+        assert result["tracks"] == 4
+
+        session.close()
+
+    def test_scan_library_root_skips_non_audio(self, engine: Engine, tmp_path: Path) -> None:
+        """Non-audio files in the library tree should be skipped."""
+        from maestro.scanner import scan_library_root
+
+        lib_root = tmp_path / "Music"
+        _make_audio_file(lib_root, "Artist/Album/track.flac")
+        txt_file = lib_root / "Artist" / "Album" / "notes.txt"
+        txt_file.write_text("not audio")
+
+        session = create_session(engine)
+        result = scan_library_root(session, lib_root)
+        session.commit()
+
+        assert result["tracks"] == 1
+        session.close()

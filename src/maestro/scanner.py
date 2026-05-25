@@ -12,6 +12,8 @@ from maestro.db.models import Download, FileSystemSnapshot
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from maestro.db.models import Track
+
 
 AUDIO_EXTENSIONS: set[str] = {
     ".mp3",
@@ -158,24 +160,118 @@ def _create_artist_album_track(
     artist_name: str,
     album_title: str,
     track_path: Path,
-    **track_meta: Any,
-) -> None:
+    **_track_meta: Any,
+) -> Track:
     """Create or retrieve Artist, Album, and Track records.
 
-    This is an internal helper for :func:`scan_library_root` and is not
-    intended to be called directly.
+    Args:
+        session: Active database session.
+        artist_name: Name of the artist.
+        album_title: Title of the album.
+        track_path: Path to the audio file.
+
+    Returns:
+        The Track record (newly created or existing).
     """
-    # TODO: implement library scanning logic when scan_library_root is built
-    raise NotImplementedError  # pragma: no cover
+    from maestro.db.models import Album, Artist, Track
+
+    # Get or create Artist
+    artist = session.query(Artist).filter_by(name=artist_name).first()
+    if not artist:
+        slug = artist_name.lower().replace(" ", "-").replace("/", "-")
+        artist = Artist(name=artist_name, slug=slug)
+        session.add(artist)
+        session.flush()
+
+    # Get or create Album
+    album = (
+        session.query(Album)
+        .filter_by(
+            artist_id=artist.id,
+            title=album_title,
+        )
+        .first()
+    )
+    if not album:
+        album = Album(artist_id=artist.id, title=album_title)
+        session.add(album)
+        session.flush()
+
+    # Get or create Track
+    track_path_str = str(track_path)
+    track = session.query(Track).filter_by(file_path=track_path_str).first()
+    if track:
+        return track
+
+    file_stat = track_path.stat()
+    track = Track(
+        album_id=album.id,
+        title=track_path.stem,
+        file_path=track_path_str,
+        file_size=file_stat.st_size,
+        file_hash=_get_file_hash(track_path),
+        format=track_path.suffix.lstrip(".").upper(),
+    )
+    session.add(track)
+    session.flush()
+    return track
 
 
 def scan_library_root(
     session: Session,
     root_path: str | Path,
 ) -> dict[str, int]:
-    """Walk *root_path* following an artist/album/track structure.
+    """Walk a library directory tree and populate Artist / Album / Track records.
 
-    .. warning::
-       Not yet implemented.
+    Expects the directory structure ``{artist}/{album}/{track}.{ext}``.
+    Only audio files (matching :const:`AUDIO_EXTENSIONS`) are processed;
+    non-audio files and non-leaf directories are ignored.
+
+    Args:
+        session: Active database session.
+        root_path: Path to the root of the music library.
+
+    Returns:
+        Dict with keys ``"artists"``, ``"albums"``, ``"tracks"``
+        counting newly created records.
     """
-    raise NotImplementedError  # pragma: no cover
+    counts: dict[str, int] = {"artists": 0, "albums": 0, "tracks": 0}
+
+    from maestro.scanner import _is_audio_file
+
+    root = Path(root_path)
+    if not root.is_dir():
+        return counts
+
+    # Walk structure: artist_dir / album_dir / audio_files
+    for artist_dir in sorted(root.iterdir()):
+        if not artist_dir.is_dir():
+            continue
+        artist_name = artist_dir.name
+
+        for album_dir in sorted(artist_dir.iterdir()):
+            if not album_dir.is_dir():
+                continue
+            album_title = album_dir.name
+
+            album_has_tracks = False
+            for track_file in sorted(album_dir.iterdir()):
+                if not track_file.is_file() or not _is_audio_file(track_file):
+                    continue
+                _create_artist_album_track(
+                    session=session,
+                    artist_name=artist_name,
+                    album_title=album_title,
+                    track_path=track_file,
+                )
+                counts["tracks"] += 1
+                album_has_tracks = True
+
+            if album_has_tracks:
+                counts["albums"] += 1
+
+        if counts["albums"] > 0 or any(p.is_dir() for p in artist_dir.iterdir()):
+            counts["artists"] += 1
+
+    session.commit()
+    return counts
