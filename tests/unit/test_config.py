@@ -11,6 +11,7 @@ class TestConfigDataclass:
     def test_default_sources_includes_duckduckgo(self) -> None:
         """Default ArtworkConfig should have duckduckgo as first source."""
         from maestro.config import ArtworkConfig
+
         config = ArtworkConfig()
         assert config.sources == ["duckduckgo", "musicbrainz", "lastfm"]
 

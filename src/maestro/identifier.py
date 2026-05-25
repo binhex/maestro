@@ -371,8 +371,8 @@ def _identify_tags_or_heuristic(
     Returns:
         Tuple of (artist_name, album_title, year, genre, match_type).
     """
-    dl_path = Path(download.source_path)  # type: ignore[arg-type]
-    tags = _read_id3_tags(download.source_path)  # type: ignore[arg-type]
+    dl_path = Path(download.source_path)
+    tags = _read_id3_tags(download.source_path)
 
     if tags is not None:
         return (
@@ -417,7 +417,7 @@ def _resolve_identified_album(
 
 def identify_download(download: Download, session: Session) -> None:
     """Identify metadata for a single download."""
-    dl_path = Path(download.source_path)  # type: ignore[arg-type]
+    dl_path = Path(download.source_path)
     if not dl_path.is_dir():
         logger.debug("Download path {} is not a directory — skipping", dl_path)
         return

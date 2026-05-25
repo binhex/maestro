@@ -118,7 +118,7 @@ def scan_download_root(
     created = 0
     skipped = 0
 
-    existing_paths: set[str] = {str(row[0]) for row in session.query(Download.source_path).distinct().all()}  # type: ignore[call-overload]
+    existing_paths: set[str] = {str(row[0]) for row in session.query(Download.source_path).distinct().all()}
 
     for album_dir, files in album_files.items():
         album_path_str = str(album_dir)
@@ -179,7 +179,7 @@ def _create_artist_album_track(
     from maestro.db.models import Album, Artist, Track
 
     # Get or create Artist (case-insensitive lookup)
-    artist = session.query(Artist).filter(Artist.name.ilike(artist_name)).first()  # type: ignore[attr-defined]
+    artist = session.query(Artist).filter(Artist.name.ilike(artist_name)).first()
     if not artist:
         slug = re.sub(r"\s+", "-", artist_name.lower())
         slug = re.sub(r"[^a-z0-9-]", "", slug)
@@ -188,14 +188,14 @@ def _create_artist_album_track(
         session.flush()
     else:
         # Use canonical casing from existing record
-        artist_name = artist.name  # type: ignore[assignment]
+        artist_name = artist.name
 
     # Get or create Album (case-insensitive lookup within artist)
     album = (
         session.query(Album)
         .filter(
             Album.artist_id == artist.id,
-            Album.title.ilike(album_title),  # type: ignore[attr-defined]
+            Album.title.ilike(album_title),
         )
         .first()
     )

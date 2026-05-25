@@ -960,9 +960,11 @@ class TestDownloadArtworkForAlbum:
 
     def test_duckduckgo_is_tried_first(self, tmp_path, mocker) -> None:
         """When duckduckgo is first in sources, it's tried before musicbrainz."""
-        from maestro.artwork import download_artwork_for_album
-        from PIL import Image
         import io
+
+        from PIL import Image
+
+        from maestro.artwork import download_artwork_for_album
 
         album_dir = tmp_path / "DuckFirst"
         album_dir.mkdir()

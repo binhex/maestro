@@ -277,7 +277,7 @@ def _import_audio_files(
 ) -> None:
     """Import audio files with quality comparison and file operations."""
     existing_tracks_by_name: dict[str, Track] = {}
-    for t in album.tracks or []:  # type: ignore[var-annotated]
+    for t in album.tracks or []:
         if t.file_path:
             name = Path(t.file_path).stem.lower()
             existing_tracks_by_name[name] = t
@@ -310,7 +310,7 @@ def _import_audio_files(
             delete_replaced=delete_replaced,
             counts=counts,
             artist_name=artist_name,
-            album_title=album.title,  # type: ignore[arg-type]
+            album_title=album.title,
             year=album.year,
             genre=album.genre,
         )
@@ -326,7 +326,7 @@ def _process_download(
     counts: dict[str, int],
 ) -> None:
     """Process a single identified download record."""
-    source = Path(download.source_path)  # type: ignore[arg-type]
+    source = Path(download.source_path)
 
     if not source.is_dir():
         logger.warning("Source directory missing: {}", source)
