@@ -11,6 +11,10 @@ import yaml  # type: ignore[import-untyped]
 
 from maestro.utils import get_project_root
 
+# Current config schema version. Increment when fields are added or changed.
+# Migration functions in _MIGRATIONS handle upgrading from older versions.
+CONFIG_VERSION = 2
+
 _DEFAULT_CONFIG_PATHS = [
     os.environ.get("MAESTRO_CONFIG", ""),
     str(Path(get_project_root()) / "configs" / "maestro.yaml"),
@@ -149,6 +153,7 @@ def _write_default_config(target_path: str) -> str:
 def _default_config_dict() -> dict:
     """Return the default config as a plain dict for comparison."""
     return {
+        "version": CONFIG_VERSION,
         "library_roots": [
             {
                 "path": "/path/to/music/library",
@@ -178,28 +183,73 @@ def _default_config_dict() -> dict:
     }
 
 
+# ---- Config file versioning -----------------------------------------------
+# To add a new migration:
+#   1. Increment CONFIG_VERSION at the top of this file
+#   2. Add a migration function _migrate_v{N}_to_v{N+1}(data) that transforms
+#      the data dict in-place
+#   3. Register it in _MIGRATIONS below
+#
+# Migrations are run in order from the file's current version up to
+# CONFIG_VERSION - 1. Each migration receives the raw YAML dict and can
+# add, remove, or modify keys before the next migration runs.
+
+
+_MIGRATIONS: dict[int, Any] = {}
+
+
+def _migrate_v1_to_v2(data: dict) -> None:
+    """Migration from version 1 to 2: add artwork dimensions, quality fields, scheduler."""
+    quality = data.setdefault("quality", {})
+    quality.setdefault("delete_replaced", False)
+
+    artwork = data.setdefault("artwork", {})
+    artwork.setdefault("fanart", "fanart.jpg")
+    artwork.setdefault("skip_if_exists", True)
+    artwork.setdefault("sources", ["musicbrainz", "lastfm"])
+    artwork.setdefault("width", 500)
+    artwork.setdefault("height", 500)
+
+    scheduler = data.setdefault("scheduler", {})
+    scheduler.setdefault("schedule", "0 3 * * *")
+    scheduler.setdefault("run_on_start", True)
+    scheduler.setdefault("retry_failed", True)
+    scheduler.setdefault("max_retries", 3)
+
+    library_roots = data.setdefault("library_roots", [])
+    for entry in library_roots:
+        if isinstance(entry, dict):
+            entry.setdefault("enabled", True)
+
+    download_roots = data.setdefault("download_roots", [])
+    for entry in download_roots:
+        if isinstance(entry, dict):
+            entry.setdefault("enabled", True)
+
+
+_MIGRATIONS[1] = _migrate_v1_to_v2
+
+
 def _upgrade_config(data: dict, file_path: str) -> dict:
-    """Add any missing keys from the default config to *data*.
+    """Migrate a config from its current version to CONFIG_VERSION.
 
-    Only adds keys that don't exist — never removes or overwrites user values.
-    Returns the (possibly updated) data dict. Saves the file if changes were made.
+    Runs migration functions sequentially. Preserves all user values.
+    Saves the upgraded file to disk. Returns the upgraded data dict.
     """
-    defaults = _default_config_dict()
-    changed = False
+    file_version = data.get("version", 1)
 
-    for section, section_defaults in defaults.items():
-        if section not in data:
-            data[section] = section_defaults
-            changed = True
-        elif isinstance(section_defaults, dict) and isinstance(data[section], dict):
-            for key, val in section_defaults.items():
-                if key not in data[section]:
-                    data[section][key] = val
-                    changed = True
+    if file_version >= CONFIG_VERSION:
+        return data
 
-    if changed:
-        with open(file_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    for ver in range(file_version, CONFIG_VERSION):
+        migrate = _MIGRATIONS.get(ver)
+        if migrate:
+            migrate(data)
+
+    data["version"] = CONFIG_VERSION
+
+    with open(file_path, "w") as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     return data
 
