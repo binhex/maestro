@@ -753,6 +753,63 @@ class TestExtractTagsFromFile:
         result = mid._extract_tags_from_file(fpath)
         assert result is not None
 
+
+class TestExtractId3likeTags:
+    """Tests for _extract_id3like_tags."""
+
+    def test_id3like_with_getall(self) -> None:
+        """ID3-like tags with getall should extract metadata."""
+        from maestro import identifier as mid
+
+        class MockFrame:
+            def __str__(self) -> str:
+                return "Artist"
+
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return [MockFrame()]
+
+        result = mid._extract_id3like_tags(MockTags())
+        assert result is not None
+        assert result["artist"] == "Artist"
+
+    def test_id3like_no_getall_returns_none(self) -> None:
+        """Without getall, _extract_id3like_tags returns None."""
+        from maestro import identifier as mid
+
+        result = mid._extract_id3like_tags(None)
+        assert result is None
+
+    def test_id3like_no_artist_or_album_returns_none(self) -> None:
+        """When artist and album are both missing, returns None."""
+        from maestro import identifier as mid
+
+        class MockTags:
+            def getall(self, frame_id: str) -> list:
+                return []
+
+        result = mid._extract_id3like_tags(MockTags())
+        assert result is None
+
+
+class TestExtractVorbislikeTags:
+    """Tests for _extract_vorbislike_tags."""
+
+    def test_vorbislike_with_dict(self) -> None:
+        """Vorbis-like dict tags should extract metadata."""
+        from maestro import identifier as mid
+
+        result = mid._extract_vorbislike_tags({"artist": ["A"], "album": ["B"]})
+        assert result is not None
+        assert result["artist"] == "A"
+
+    def test_vorbislike_not_dict_returns_none(self) -> None:
+        """Non-dict tags return None."""
+        from maestro import identifier as mid
+
+        result = mid._extract_vorbislike_tags(None)
+        assert result is None
+
     def test_extract_other_audio(self, tmp_path: Path, mocker: pytest_mock.MockerFixture) -> None:
         """Non-FLAC/MP3 audio uses generic mutagen.File."""
         fpath = tmp_path / "track.ogg"

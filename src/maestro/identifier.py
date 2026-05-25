@@ -179,38 +179,48 @@ def _extract_mp3_tags(fpath: Path) -> dict[str, Any] | None:
     return result if result.get("artist") or result.get("album") else None
 
 
+def _extract_id3like_tags(tags: Any) -> dict[str, Any] | None:
+    """Extract tags from an ID3-like (getall) tag container."""
+    if not hasattr(tags, "getall"):
+        return None
+    year_text = _id3_text(tags, "TDRC") or _id3_text(tags, "TYER")
+    result = {
+        "artist": _id3_text(tags, "TPE1"),
+        "album": _id3_text(tags, "TALB"),
+        "title": _id3_text(tags, "TIT2"),
+        "track": _id3_track(tags, "TRCK"),
+        "year": _parse_int(year_text),
+        "genre": _id3_text(tags, "TCON"),
+    }
+    return result if result.get("artist") or result.get("album") else None
+
+
+def _extract_vorbislike_tags(tags: Any) -> dict[str, Any] | None:
+    """Extract tags from a VorbisComment-like (dict) tag container."""
+    if not isinstance(tags, dict):
+        return None
+    result = {
+        "artist": _vorbis_first(tags, "artist"),
+        "album": _vorbis_first(tags, "album"),
+        "title": _vorbis_first(tags, "title"),
+        "track": _vorbis_int(tags, "tracknumber"),
+        "year": _vorbis_int(tags, "date"),
+        "genre": _vorbis_first(tags, "genre"),
+    }
+    return result if result.get("artist") or result.get("album") else None
+
+
 def _extract_other_tags(audio: Any, fpath: Path) -> dict[str, Any] | None:
     """Extract tags from non-FLAC/MP3 audio via mutagen.File."""
     if not hasattr(audio, "tags") or audio.tags is None:
         return None
     tags = audio.tags
-
-    # EasyID3 / ID3-like
-    if hasattr(tags, "getall"):
-        year_text = _id3_text(tags, "TDRC") or _id3_text(tags, "TYER")
-        result = {
-            "artist": _id3_text(tags, "TPE1"),
-            "album": _id3_text(tags, "TALB"),
-            "title": _id3_text(tags, "TIT2"),
-            "track": _id3_track(tags, "TRCK"),
-            "year": _parse_int(year_text),
-            "genre": _id3_text(tags, "TCON"),
-        }
-        return result if result.get("artist") or result.get("album") else None
-
-    # Vorbis-like (dict of lists)
-    if isinstance(tags, dict):
-        result = {
-            "artist": _vorbis_first(tags, "artist"),
-            "album": _vorbis_first(tags, "album"),
-            "title": _vorbis_first(tags, "title"),
-            "track": _vorbis_int(tags, "tracknumber"),
-            "year": _vorbis_int(tags, "date"),
-            "genre": _vorbis_first(tags, "genre"),
-        }
-        return result if result.get("artist") or result.get("album") else None
-
-    # MP4/M4A tags (mutagen.mp4.MP4Tags with __getitem__ atoms)
+    result = _extract_id3like_tags(tags)
+    if result is not None:
+        return result
+    result = _extract_vorbislike_tags(tags)
+    if result is not None:
+        return result
     return _extract_mp4_tags(tags)
 
 
@@ -263,6 +273,44 @@ def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
         return None
 
     return _extract_other_tags(audio, fpath)
+
+
+# ---------------------------------------------------------------------------
+# Library matching helper
+# ---------------------------------------------------------------------------
+
+
+def _match_to_library(
+    session: Session,
+    artist_name: str | None,
+    album_title: str | None,
+    year: int | None = None,
+    genre: str | None = None,
+) -> int | None:
+    """Match identified metadata against existing library records.
+
+    Returns the matched Album id, or None.
+    """
+    if not artist_name or not album_title:
+        return None
+    artist = session.query(Artist).filter(Artist.name == artist_name).first()
+    if artist is None:
+        return None
+    album = (
+        session.query(Album)
+        .filter(
+            Album.artist_id == artist.id,
+            Album.title == album_title,
+        )
+        .first()
+    )
+    if album is None:
+        return None
+    if year is not None and album.year is None:
+        album.year = year
+    if genre is not None and album.genre is None:
+        album.genre = genre
+    return album.id
 
 
 # ---------------------------------------------------------------------------
@@ -365,21 +413,18 @@ def identify_download(download: Download, session: Session) -> None:
         )
 
     # --- Try to match against existing library ---
-    identified_album_id: int | None = None
-    if artist_name and album_title:
-        artist = session.query(Artist).filter(Artist.name == artist_name).first()
-        if artist is not None:
-            album = session.query(Album).filter(Album.artist_id == artist.id, Album.title == album_title).first()
-            if album is not None:
-                identified_album_id = album.id
-                if match_type is None:
-                    match_type = "exact"
-                # Fill in year / genre from the library match when missing
+    identified_album_id = _match_to_library(session, artist_name, album_title, year, genre)
+    if identified_album_id is not None:
+        if match_type is None:
+            match_type = "exact"
+        # Fill in year / genre from library match when download has none
+        if year is None or genre is None:
+            lib_album = session.get(Album, identified_album_id)
+            if lib_album is not None:
                 if year is None:
-                    year = album.year
+                    year = lib_album.year
                 if genre is None:
-                    genre = album.genre
-                logger.debug("Matched to Album id={} in library", album.id)
+                    genre = lib_album.genre
 
     # --- Update the download record ---
     download.identified_artist = artist_name

@@ -177,30 +177,37 @@ def _write_default_config(target_path: str) -> str:
     return target_path
 
 
-def load_config(config_path: str | None = None, *, create_default: bool = True) -> Config:
-    """Load configuration from a YAML file.
+def _try_load(path: str) -> Config | None:
+    """Try to load a Config from *path*. Returns None if not found."""
+    if not path:
+        return None
+    p = Path(path)
+    if p.exists() and p.is_file():
+        with open(p) as f:
+            data = yaml.safe_load(f) or {}
+        return Config.from_dict(data)
+    return None
 
-    If *config_path* is provided, only that path is tried.
-    Otherwise, the default search paths are checked in order.  If no file
-    is found and *create_default* is ``True``, a default config file is
-    written to the first writable default path.
-    """
-    # If config_path is a directory (no extension), append default filename
+
+def _resolve_config_path(config_path: str | None) -> str | None:
+    """If config_path is a directory, append the default filename."""
     if config_path:
         cp = Path(config_path)
         if cp.is_dir() or not cp.suffix:
             config_path = str(cp / "maestro.yaml")
+    return config_path
 
+
+def load_config(config_path: str | None = None, *, create_default: bool = True) -> Config:
+    """Load configuration from a YAML file.  See module docstring for details."""
+    config_path = _resolve_config_path(config_path)
     paths_to_try = [config_path] if config_path else [p for p in _DEFAULT_CONFIG_PATHS if p]
 
+    # Try each path in order
     for path in paths_to_try:
-        if not path:
-            continue
-        p = Path(path)
-        if p.exists() and p.is_file():
-            with open(p) as f:
-                data = yaml.safe_load(f) or {}
-            return Config.from_dict(data)
+        result = _try_load(path)
+        if result is not None:
+            return result
 
     # No config file found — create a default one if requested
     if create_default:

@@ -45,24 +45,25 @@ def _lastfm_api_key(config: Config) -> str | None:
     return os.environ.get("LASTFM_API_KEY")
 
 
+def _resolve_db_path(database_path: str | None, ctx: click.Context) -> str:
+    """Resolve the database path from options, env, or default."""
+    if database_path is None and ctx.parent is not None:
+        database_path = ctx.parent.params.get("database_path")
+    assert ctx.parent is not None, "_resolve_db_path requires a parent context"
+    if not database_path:
+        database_path = os.environ.get("MAESTRO_DB") or _DEFAULT_DB_PATH
+    db_p = Path(database_path)
+    if db_p.is_dir() or not db_p.suffix:
+        database_path = str(db_p / "maestro.db")
+    return database_path
+
+
 def _setup(
     ctx: click.Context,
     database_path: str | None = None,
     config_path: str | None = None,
 ) -> tuple[Config, Engine, Session]:
-    """Load config, initialise logger, create engine and session.
-
-    Args:
-        ctx: Click context — group-level params are read from
-            ``ctx.parent.params``.
-        database_path: Override path to the SQLite database.  Falls back to
-            ``MAESTRO_DB`` env var, then the default project path.
-        config_path: Override path to the YAML config file.  ``None`` means
-            auto-detect via :func:`~maestro.config.load_config`.
-
-    Returns:
-        Tuple of ``(config, engine, session)``.
-    """
+    """Load config, initialise logger, create engine and session."""
     if config_path is None and ctx.parent is not None:
         config_path = ctx.parent.params.get("config")
     config = load_config(config_path)
@@ -71,13 +72,7 @@ def _setup(
         raise click.UsageError("_setup must be called from a subcommand")
     log_level = ctx.parent.params.get("log_level", "INFO")
     log_path = ctx.parent.params.get("log_path") or _DEFAULT_LOGS_PATH
-    database_path = database_path or ctx.parent.params.get("database_path")
-    if not database_path:
-        database_path = os.environ.get("MAESTRO_DB") or _DEFAULT_DB_PATH
-    # If the path is a directory, append the default database filename
-    db_p = Path(database_path)
-    if db_p.is_dir() or not db_p.suffix:
-        database_path = str(db_p / "maestro.db")
+    database_path = _resolve_db_path(database_path, ctx)
 
     create_logger(
         log_format=_DEFAULT_LOG_FORMAT,

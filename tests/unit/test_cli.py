@@ -1,7 +1,9 @@
 """Tests for maestro.cli."""
 
 import importlib
+import tempfile
 from importlib.metadata import PackageNotFoundError
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -346,6 +348,37 @@ class TestArtwork:
             assert "Test Artist" in result.output
             mock_download.assert_called_once()
             assert mock_session.close.called
+
+
+class TestSetup:
+    """Tests for the _setup helper and _resolve_db_path."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    def test_resolve_db_path_defaults(self) -> None:
+        """_resolve_db_path should fall back to default when no path given."""
+        mock_ctx = Mock()
+        mock_ctx.parent = Mock()
+        mock_ctx.parent.params = {"database_path": None}
+
+        from maestro.cli import _resolve_db_path
+
+        result = _resolve_db_path(None, mock_ctx)
+        assert isinstance(result, str)
+        assert "maestro.db" in result
+
+    def test_resolve_db_path_with_directory(self) -> None:
+        """A directory path should have maestro.db appended."""
+        from maestro.cli import _resolve_db_path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_ctx = Mock()
+            mock_ctx.parent = Mock()
+            mock_ctx.parent.params = {"database_path": None}
+
+            result = _resolve_db_path(tmpdir, mock_ctx)
+            assert result == str(Path(tmpdir) / "maestro.db")
 
 
 class TestDaemon:
