@@ -33,7 +33,7 @@ dependencies = [
     "croniter",
     "musicbrainzngs",
     "pillow>=12.2.0",
-    "duckduckgo-search",
+    "ddgs>=9.14.4",
 ]
 
 [project.scripts]

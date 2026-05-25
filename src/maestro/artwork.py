@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 
 try:
-    from duckduckgo_search import DDGS  # noqa: TC002
+    from ddgs import DDGS  # noqa: TC002
 except ImportError:
     DDGS = None  # type: ignore
 
