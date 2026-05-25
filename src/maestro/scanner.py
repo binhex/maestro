@@ -228,9 +228,10 @@ def scan_library_root(
 ) -> dict[str, int]:
     """Walk a library directory tree and populate Artist / Album / Track records.
 
-    Expects the directory structure ``{artist}/{album}/{track}.{ext}``.
-    Only audio files (matching :const:`AUDIO_EXTENSIONS`) are processed;
-    non-audio files and non-leaf directories are ignored.
+    Walks the entire directory tree recursively. Directories containing audio
+    files are treated as albums; their parent directory is treated as the artist.
+    This supports both shallow structures like ``{artist}/{album}/`` and deep
+    structures like ``{genre}/{subgenre}/{artist}/{album}/``.
 
     Args:
         session: Active database session.
@@ -246,38 +247,33 @@ def scan_library_root(
     if not root.is_dir():
         return counts
 
-    # Walk structure: artist_dir / album_dir / audio_files
-    for artist_dir in sorted(root.iterdir()):
-        if not artist_dir.is_dir():
+    for afile in root.rglob("*"):
+        if not afile.is_file() or not _is_audio_file(afile):
             continue
-        artist_name = artist_dir.name
-
-        artist_has_albums = False
-
-        for album_dir in sorted(artist_dir.iterdir()):
-            if not album_dir.is_dir():
-                continue
+        album_dir = afile.parent
+        # Walk up to find the first ancestor that has a parent under root
+        # album_dir = the album, album_dir.parent = the artist
+        artist_dir = album_dir.parent
+        if artist_dir == root:
+            artist_name = "Unknown Artist"
+            album_title = album_dir.name
+        else:
+            artist_name = artist_dir.name
             album_title = album_dir.name
 
-            album_has_tracks = False
-            for track_file in sorted(album_dir.iterdir()):
-                if not track_file.is_file() or not _is_audio_file(track_file):
-                    continue
-                _create_artist_album_track(
-                    session=session,
-                    artist_name=artist_name,
-                    album_title=album_title,
-                    track_path=track_file,
-                )
-                counts["tracks"] += 1
-                album_has_tracks = True
+        _create_artist_album_track(
+            session=session,
+            artist_name=artist_name,
+            album_title=album_title,
+            track_path=afile,
+        )
+        counts["tracks"] += 1
 
-            if album_has_tracks:
-                counts["albums"] += 1
-                artist_has_albums = True
+    # Count unique artists and albums
+    from maestro.db.models import Album, Artist  # noqa: PLC0415
 
-        if artist_has_albums:
-            counts["artists"] += 1
+    counts["artists"] = session.query(Artist).count()
+    counts["albums"] = session.query(Album).count()
 
     session.commit()
     return counts

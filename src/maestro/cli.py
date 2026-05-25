@@ -205,7 +205,13 @@ def _run_download_scan(
 )
 @click.pass_context
 def scan(ctx: click.Context, roots: tuple[str, ...], library: bool) -> None:
-    """Scan directories for music files."""
+    """Scan directories for music files.
+
+    By default, scans download directories for new files to import.
+    Use ``--library`` to scan an existing organised music library and
+    populate the database with its Artist, Album, and Track records
+    (required before running ``artwork`` or ``check``).
+    """
     config, _engine, session = _setup(ctx)
     try:
         if library:
@@ -406,7 +412,8 @@ def artwork(ctx: click.Context) -> None:
         albums = session.query(Album).join(Artist, Album.artist_id == Artist.id).all()
 
         if not albums:
-            click.echo("No albums found to fetch artwork for.")
+            click.echo("No albums found in database.")
+            click.echo("Run 'maestro scan --library' first to populate the database from your music library.")
             return
 
         api_key = _lastfm_api_key(config)

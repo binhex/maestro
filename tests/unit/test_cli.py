@@ -401,8 +401,9 @@ class TestSetup:
 
     def test_setup_raises_without_parent(self) -> None:
         """_setup should raise click.UsageError when ctx.parent is None."""
-        from maestro.cli import _setup
         import click
+
+        from maestro.cli import _setup
 
         mock_ctx = Mock()
         mock_ctx.parent = None
