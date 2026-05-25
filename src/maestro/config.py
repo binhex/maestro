@@ -198,28 +198,34 @@ def _resolve_config_path(config_path: str | None) -> str | None:
     return config_path
 
 
+def _create_default_config(paths_to_try: list[str]) -> Config | None:
+    """Try to write a default config file to the first writable path."""
+    for target in paths_to_try:
+        if not target:
+            continue
+        try:
+            written = _write_default_config(target)
+            with open(written) as f:
+                data = yaml.safe_load(f) or {}
+            return Config.from_dict(data)
+        except (OSError, PermissionError):
+            continue
+    return None
+
+
 def load_config(config_path: str | None = None, *, create_default: bool = True) -> Config:
     """Load configuration from a YAML file.  See module docstring for details."""
     config_path = _resolve_config_path(config_path)
     paths_to_try = [config_path] if config_path else [p for p in _DEFAULT_CONFIG_PATHS if p]
 
-    # Try each path in order
     for path in paths_to_try:
         result = _try_load(path)
         if result is not None:
             return result
 
-    # No config file found — create a default one if requested
     if create_default:
-        for target in paths_to_try:
-            if not target:
-                continue
-            try:
-                written = _write_default_config(target)
-                with open(written) as f:
-                    data = yaml.safe_load(f) or {}
-                return Config.from_dict(data)
-            except (OSError, PermissionError):
-                continue
+        result = _create_default_config(paths_to_try)
+        if result is not None:
+            return result
 
     return Config()

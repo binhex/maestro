@@ -58,15 +58,20 @@ def _resolve_db_path(database_path: str | None, ctx: click.Context) -> str:
     return database_path
 
 
+def _resolve_setup_config_path(ctx: click.Context, config_path: str | None) -> str | None:
+    """Resolve the config path from the --config option or parameter."""
+    if config_path is None and ctx.parent is not None:
+        return ctx.parent.params.get("config")
+    return config_path
+
+
 def _setup(
     ctx: click.Context,
     database_path: str | None = None,
     config_path: str | None = None,
 ) -> tuple[Config, Engine, Session]:
     """Load config, initialise logger, create engine and session."""
-    if config_path is None and ctx.parent is not None:
-        config_path = ctx.parent.params.get("config")
-    config = load_config(config_path)
+    config = load_config(_resolve_setup_config_path(ctx, config_path))
 
     if ctx.parent is None:
         raise click.UsageError("_setup must be called from a subcommand")
@@ -74,16 +79,10 @@ def _setup(
     log_path = ctx.parent.params.get("log_path") or _DEFAULT_LOGS_PATH
     database_path = _resolve_db_path(database_path, ctx)
 
-    create_logger(
-        log_format=_DEFAULT_LOG_FORMAT,
-        log_level=log_level,
-        log_path=log_path,
-    )
-
+    create_logger(log_format=_DEFAULT_LOG_FORMAT, log_level=log_level, log_path=log_path)
     engine = get_engine(database_path)
     init_db(engine)
     session = create_session(engine)
-
     return config, engine, session
 
 

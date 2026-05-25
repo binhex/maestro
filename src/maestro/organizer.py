@@ -245,13 +245,19 @@ def _resolve_artist_and_album(
         album = session.get(Album, download.identified_album_id)
         if album is None:
             album = _get_or_create_album(
-                session, artist, album_title,
-                year=download.identified_year, genre=download.identified_genre,
+                session,
+                artist,
+                album_title,
+                year=download.identified_year,
+                genre=download.identified_genre,
             )
     else:
         album = _get_or_create_album(
-            session, artist, album_title,
-            year=download.identified_year, genre=download.identified_genre,
+            session,
+            artist,
+            album_title,
+            year=download.identified_year,
+            genre=download.identified_genre,
         )
     return artist, album, artist_name, album_title
 

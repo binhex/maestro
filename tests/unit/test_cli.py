@@ -377,6 +377,71 @@ class TestSetup:
             result = _resolve_db_path(tmpdir, mock_ctx)
             assert result == str(Path(tmpdir) / "maestro.db")
 
+    def test_resolve_setup_config_path(self) -> None:
+        """_resolve_setup_config_path should return config from parent params."""
+        from maestro.cli import _resolve_setup_config_path
+
+        mock_ctx = Mock()
+        mock_ctx.parent = Mock()
+        mock_ctx.parent.params = {"config": "/custom/config.yaml"}
+
+        result = _resolve_setup_config_path(mock_ctx, None)
+        assert result == "/custom/config.yaml"
+
+    def test_resolve_setup_config_path_default(self) -> None:
+        """When no config in params, returns the passed config_path."""
+        from maestro.cli import _resolve_setup_config_path
+
+        mock_ctx = Mock()
+        mock_ctx.parent = Mock()
+        mock_ctx.parent.params = {}
+
+        result = _resolve_setup_config_path(mock_ctx, "/my/config.yaml")
+        assert result == "/my/config.yaml"
+
+    def test_setup_raises_without_parent(self) -> None:
+        """_setup should raise click.UsageError when ctx.parent is None."""
+        from maestro.cli import _setup
+        import click
+
+        mock_ctx = Mock()
+        mock_ctx.parent = None
+
+        with pytest.raises(click.UsageError, match="_setup must be called"):
+            _setup(mock_ctx)
+
+    def test_clear_tags_for_tracks_direct(self) -> None:
+        """_clear_tags_for_tracks should call clear_tags for each track."""
+        from maestro.cli import _clear_tags_for_tracks
+
+        mock_track = Mock()
+        mock_track.file_path = "/music/track.flac"
+
+        with patch("maestro.tagger.clear_tags", return_value=True) as mock_clear:
+            _clear_tags_for_tracks([mock_track, mock_track])
+            assert mock_clear.call_count == 2
+
+    def test_write_tags_for_tracks_direct(self) -> None:
+        """_write_tags_for_tracks should call write_tags for each track."""
+        from maestro.cli import _write_tags_for_tracks
+
+        mock_track = Mock()
+        mock_track.file_path = "/music/track.flac"
+        mock_track.album = Mock()
+        mock_track.album.artist = Mock()
+        mock_track.album.artist.name = "Artist"
+        mock_track.album.title = "Album"
+        mock_track.album.year = 2024
+        mock_track.album.genre = "Genre"
+        mock_track.title = "Title"
+        mock_track.track_number = 1
+
+        with patch("maestro.tagger.write_tags", return_value=True) as mock_write:
+            _write_tags_for_tracks([mock_track])
+            mock_write.assert_called_once()
+            args, kwargs = mock_write.call_args
+            assert kwargs["artist"] == "Artist"
+
 
 class TestDaemon:
     """Tests for the ``daemon`` subcommand."""
