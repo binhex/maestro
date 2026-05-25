@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from maestro.db.models import Download, FileSystemSnapshot
 
 if TYPE_CHECKING:
@@ -247,13 +249,22 @@ def scan_library_root(
     if not root.is_dir():
         return counts
 
-    for afile in root.rglob("*"):
-        if not afile.is_file() or not _is_audio_file(afile):
-            continue
+    # Cache for artist/album lookups to avoid repeated DB queries
+    seen_artists: set[str] = set()
+    seen_albums: set[str] = set()
+    audio_files = [f for f in root.rglob("*") if f.is_file() and _is_audio_file(f)]
+    total = len(audio_files)
+
+    if total == 0:
+        logger.info("No audio files found in {}", root)
+        return counts
+
+    logger.info("Found {} audio files in {}", total, root)
+
+    for idx, afile in enumerate(audio_files, 1):
         album_dir = afile.parent
-        # Walk up to find the first ancestor that has a parent under root
-        # album_dir = the album, album_dir.parent = the artist
         artist_dir = album_dir.parent
+
         if artist_dir == root:
             artist_name = "Unknown Artist"
             album_title = album_dir.name
@@ -261,7 +272,7 @@ def scan_library_root(
             artist_name = artist_dir.name
             album_title = album_dir.name
 
-        _create_artist_album_track(
+        track = _create_artist_album_track(
             session=session,
             artist_name=artist_name,
             album_title=album_title,
@@ -269,11 +280,26 @@ def scan_library_root(
         )
         counts["tracks"] += 1
 
-    # Count unique artists and albums
-    from maestro.db.models import Album, Artist  # noqa: PLC0415
+        # Track unique artists and albums
+        if track.album_id is not None and track.album is not None:
+            album_key = f"{track.album.artist_id}|{album_title}"
+            if album_key not in seen_albums:
+                seen_albums.add(album_key)
+                counts["albums"] += 1
+                if artist_name not in seen_artists:
+                    seen_artists.add(artist_name)
+                    counts["artists"] += 1
 
-    counts["artists"] = session.query(Artist).count()
-    counts["albums"] = session.query(Album).count()
+        # Periodic commit and progress logging
+        if idx % 100 == 0:
+            session.commit()
+            logger.info("Scanned {}/{} files ({} tracks)...", idx, total, counts["tracks"])
 
     session.commit()
+    logger.info(
+        "Library scan complete: {} artists, {} albums, {} tracks",
+        counts["artists"],
+        counts["albums"],
+        counts["tracks"],
+    )
     return counts
