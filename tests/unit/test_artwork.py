@@ -487,7 +487,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key="test_key_123",
         )
 
-        assert result == {"album_art": True, "fanart": True}
+        assert result == {"album_art": True, "fanart": True, "source_used": "musicbrainz"}
         assert (album_dir / "cover.jpg").exists()
         assert (album_dir / "fanart.jpg").exists()
         assert (album_dir / "cover.jpg").read_bytes() == b"cover_art_bytes"
@@ -523,7 +523,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key=None,
         )
 
-        assert result == {"album_art": True, "fanart": False}
+        assert result == {"album_art": True, "fanart": False, "source_used": "musicbrainz"}
         assert (album_dir / "cover.jpg").exists()
         assert not (album_dir / "fanart.jpg").exists()
 
@@ -549,7 +549,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key="test_key_123",
         )
 
-        assert result == {"album_art": True, "fanart": False}
+        assert result == {"album_art": True, "fanart": False, "source_used": "cached"}
         # mb search should not have been called since art exists
         mock_search.assert_not_called()
         # read the file — it should still be the original content
@@ -587,7 +587,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key="test_key_123",
         )
 
-        assert result == {"album_art": True, "fanart": True}
+        assert result == {"album_art": True, "fanart": True, "source_used": "musicbrainz"}
         assert (album_dir / "fanart.jpg").read_bytes() == b"existing_fanart"
 
     def test_creates_album_directory(
@@ -620,7 +620,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key=None,
         )
 
-        assert result == {"album_art": True, "fanart": False}
+        assert result == {"album_art": True, "fanart": False, "source_used": "musicbrainz"}
         assert album_dir.is_dir()
         assert (album_dir / "cover.jpg").exists()
 
@@ -706,7 +706,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key=None,
         )
 
-        assert result == {"album_art": True, "fanart": False}
+        assert result == {"album_art": True, "fanart": False, "source_used": "musicbrainz"}
         assert (album_dir / "folder.jpg").exists()
         assert not (album_dir / "cover.jpg").exists()
 
@@ -734,7 +734,7 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key=None,
         )
 
-        assert result == {"album_art": False, "fanart": False}
+        assert result == {"album_art": False, "fanart": False, "source_used": None}
 
     def test_custom_sources_list(
         self,
@@ -814,4 +814,4 @@ class TestDownloadArtworkForAlbum:
             lastfm_api_key="test_key_123",
         )
 
-        assert result == {"album_art": False, "fanart": False}
+        assert result == {"album_art": False, "fanart": False, "source_used": None}

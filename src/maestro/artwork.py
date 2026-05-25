@@ -186,7 +186,7 @@ def download_artwork_for_album(
     fanart_filename: str = "fanart.jpg",
     lastfm_api_key: str | None = None,
     sources: list[str] | None = None,
-) -> dict[str, bool]:
+) -> dict[str, bool | str | None]:
     """Download album art and fanart for a given album.
 
     Creates the album directory if it does not exist. Tries each configured
@@ -204,9 +204,15 @@ def download_artwork_for_album(
             Default: ``['musicbrainz', 'lastfm']``.
 
     Returns:
-        Dict with keys ``'album_art'`` and ``'fanart'`` indicating success.
+        Dict with keys ``'album_art'`` (bool), ``'fanart'`` (bool),
+        and ``'source_used'`` (str or None) indicating which source
+        provided the album art.
     """
-    result: dict[str, bool] = {"album_art": False, "fanart": False}
+    result: dict[str, bool | str | None] = {
+        "album_art": False,
+        "fanart": False,
+        "source_used": None,
+    }
 
     album_path = Path(album_dir)
     album_path.mkdir(parents=True, exist_ok=True)
@@ -220,6 +226,7 @@ def download_artwork_for_album(
     # Try to fetch album art from configured sources in order
     if album_art_path.exists():
         result["album_art"] = True
+        result["source_used"] = "cached"
     else:
         for source in sources:
             if source == "musicbrainz":
@@ -232,6 +239,7 @@ def download_artwork_for_album(
             if data is not None:
                 album_art_path.write_bytes(data)
                 result["album_art"] = True
+                result["source_used"] = source
                 break
 
     # Try to fetch fanart from Last.fm (only if API key is available)

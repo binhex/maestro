@@ -443,8 +443,9 @@ def artwork(ctx: click.Context) -> None:
                 lastfm_api_key=api_key,
                 sources=sources,
             )
+            source = result.get("source_used") or "none"
             click.echo(
-                f"  Album art: {'✓' if result['album_art'] else '✗'}",
+                f"  Album art: {'✓' if result['album_art'] else '✗'} ({source})",
             )
             click.echo(
                 f"  Fanart:    {'✓' if result['fanart'] else '✗'}",
