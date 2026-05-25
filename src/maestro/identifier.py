@@ -135,75 +135,54 @@ def _parse_int(value: str | None) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
-    """Attempt to read metadata tags from a single audio file.
+def _extract_flac_tags(fpath: Path) -> dict[str, Any] | None:
+    """Extract tags from a FLAC file."""
+    from mutagen.flac import FLAC  # noqa: PLC0415
 
-    Args:
-        fpath: Path to an audio file.
-
-    Returns:
-        A dict with keys ``artist``, ``album``, ``title``, ``track``,
-        ``year``, ``genre``, or ``None``.
-    """
-    import mutagen  # noqa: PLC0415
-
-    ext = fpath.suffix.lower()
-
-    if ext == ".flac":
-        from mutagen.flac import FLAC  # noqa: PLC0415
-
-        try:
-            flac_file = FLAC(fpath)
-        except Exception:  # noqa: BLE001
-            return None
-        if flac_file.tags is None:
-            return None
-        result = {
-            "artist": _vorbis_first(flac_file.tags, "artist"),
-            "album": _vorbis_first(flac_file.tags, "album"),
-            "title": _vorbis_first(flac_file.tags, "title"),
-            "track": _vorbis_int(flac_file.tags, "tracknumber"),
-            "year": _vorbis_int(flac_file.tags, "date"),
-            "genre": _vorbis_first(flac_file.tags, "genre"),
-        }
-        if result.get("artist") or result.get("album"):
-            return result
-        return None
-
-    if ext == ".mp3":
-        from mutagen.id3 import ID3, ID3NoHeaderError  # noqa: PLC0415
-
-        try:
-            mp3_file = ID3(fpath)
-        except ID3NoHeaderError:
-            return None
-        except Exception:  # noqa: BLE001
-            return None
-
-        year_text = _id3_text(mp3_file, "TDRC") or _id3_text(mp3_file, "TYER")
-        result = {
-            "artist": _id3_text(mp3_file, "TPE1"),
-            "album": _id3_text(mp3_file, "TALB"),
-            "title": _id3_text(mp3_file, "TIT2"),
-            "track": _id3_track(mp3_file, "TRCK"),
-            "year": _parse_int(year_text),
-            "genre": _id3_text(mp3_file, "TCON"),
-        }
-        if result.get("artist") or result.get("album"):
-            return result
-        return None
-
-    # --- Other formats via mutagen.File ---
     try:
-        audio = mutagen.File(fpath)
+        flac_file = FLAC(fpath)
     except Exception:  # noqa: BLE001
         return None
-    if audio is None:
+    if flac_file.tags is None:
+        return None
+    result = {
+        "artist": _vorbis_first(flac_file.tags, "artist"),
+        "album": _vorbis_first(flac_file.tags, "album"),
+        "title": _vorbis_first(flac_file.tags, "title"),
+        "track": _vorbis_int(flac_file.tags, "tracknumber"),
+        "year": _vorbis_int(flac_file.tags, "date"),
+        "genre": _vorbis_first(flac_file.tags, "genre"),
+    }
+    return result if result.get("artist") or result.get("album") else None
+
+
+def _extract_mp3_tags(fpath: Path) -> dict[str, Any] | None:
+    """Extract tags from an MP3 file."""
+    from mutagen.id3 import ID3, ID3NoHeaderError  # noqa: PLC0415
+
+    try:
+        mp3_file = ID3(fpath)
+    except ID3NoHeaderError:
+        return None
+    except Exception:  # noqa: BLE001
         return None
 
+    year_text = _id3_text(mp3_file, "TDRC") or _id3_text(mp3_file, "TYER")
+    result = {
+        "artist": _id3_text(mp3_file, "TPE1"),
+        "album": _id3_text(mp3_file, "TALB"),
+        "title": _id3_text(mp3_file, "TIT2"),
+        "track": _id3_track(mp3_file, "TRCK"),
+        "year": _parse_int(year_text),
+        "genre": _id3_text(mp3_file, "TCON"),
+    }
+    return result if result.get("artist") or result.get("album") else None
+
+
+def _extract_other_tags(audio: Any, fpath: Path) -> dict[str, Any] | None:
+    """Extract tags from non-FLAC/MP3 audio via mutagen.File."""
     if not hasattr(audio, "tags") or audio.tags is None:
         return None
-
     tags = audio.tags
 
     # EasyID3 / ID3-like
@@ -217,9 +196,7 @@ def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
             "year": _parse_int(year_text),
             "genre": _id3_text(tags, "TCON"),
         }
-        if result.get("artist") or result.get("album"):
-            return result
-        return None
+        return result if result.get("artist") or result.get("album") else None
 
     # Vorbis-like (dict of lists)
     if isinstance(tags, dict):
@@ -231,38 +208,61 @@ def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
             "year": _vorbis_int(tags, "date"),
             "genre": _vorbis_first(tags, "genre"),
         }
-        if result.get("artist") or result.get("album"):
-            return result
-        return None
+        return result if result.get("artist") or result.get("album") else None
 
     # MP4/M4A tags (mutagen.mp4.MP4Tags with __getitem__ atoms)
-    if hasattr(tags, "__getitem__"):
-        # MP4 atoms used for common metadata
-        atoms_map: dict[str, list[str]] = {
-            "artist": ["\xa9ART", "aART", "----:com.apple.iTunes:Artist"],
-            "album": ["\xa9alb", "----:com.apple.iTunes:Album"],
-            "title": ["\xa9nam", "----:com.apple.iTunes:Title"],
-            "track": ["\xa9trkn", "----:com.apple.iTunes:TrackNumber"],
-            "year": ["\xa9day", "----:com.apple.iTunes:Year"],
-            "genre": ["\xa9gen", "----:com.apple.iTunes:Genre"],
-        }
-        result = {}
-        for key, atoms in atoms_map.items():
-            for atom in atoms:
-                try:
-                    val = tags[atom]
-                    if val:
-                        if isinstance(val, list):
-                            result[key] = str(val[0])
-                        else:
-                            result[key] = str(val)
-                        break
-                except (KeyError, TypeError, IndexError):
-                    continue
-        if result.get("artist") or result.get("album"):
-            return result
+    return _extract_mp4_tags(tags)
 
-    return None
+
+def _extract_mp4_tags(tags: Any) -> dict[str, Any] | None:
+    """Extract tags from an MP4/M4A file."""
+    if not hasattr(tags, "__getitem__"):
+        return None
+    atoms_map: dict[str, list[str]] = {
+        "artist": ["\xa9ART", "aART", "----:com.apple.iTunes:Artist"],
+        "album": ["\xa9alb", "----:com.apple.iTunes:Album"],
+        "title": ["\xa9nam", "----:com.apple.iTunes:Title"],
+        "track": ["\xa9trkn", "----:com.apple.iTunes:TrackNumber"],
+        "year": ["\xa9day", "----:com.apple.iTunes:Year"],
+        "genre": ["\xa9gen", "----:com.apple.iTunes:Genre"],
+    }
+    result: dict[str, Any] = {}
+    for key, atoms in atoms_map.items():
+        for atom in atoms:
+            try:
+                val = tags[atom]
+                if val:
+                    if isinstance(val, list):
+                        result[key] = str(val[0])
+                    else:
+                        result[key] = str(val)
+                    break
+            except (KeyError, TypeError, IndexError):
+                continue
+    return result if result.get("artist") or result.get("album") else None
+
+
+def _extract_tags_from_file(fpath: Path) -> dict[str, Any] | None:
+    """Attempt to read metadata tags from a single audio file."""
+    import mutagen  # noqa: PLC0415
+
+    ext = fpath.suffix.lower()
+
+    if ext == ".flac":
+        return _extract_flac_tags(fpath)
+
+    if ext == ".mp3":
+        return _extract_mp3_tags(fpath)
+
+    # --- Other formats via mutagen.File ---
+    try:
+        audio = mutagen.File(fpath)
+    except Exception:  # noqa: BLE001
+        return None
+    if audio is None:
+        return None
+
+    return _extract_other_tags(audio, fpath)
 
 
 # ---------------------------------------------------------------------------

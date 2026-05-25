@@ -753,7 +753,7 @@ class TestExtractTagsFromFile:
         result = mid._extract_tags_from_file(fpath)
         assert result is not None
 
-    def test_extract_other_audio(self, tmp_path: Path, mocker) -> None:
+    def test_extract_other_audio(self, tmp_path: Path, mocker: pytest_mock.MockerFixture) -> None:
         """Non-FLAC/MP3 audio uses generic mutagen.File."""
         fpath = tmp_path / "track.ogg"
         fpath.write_text("dummy")
@@ -764,3 +764,27 @@ class TestExtractTagsFromFile:
 
         result = mid._extract_tags_from_file(fpath)
         assert result is not None
+
+    def test_extract_mp4_tags(self, tmp_path: Path, mocker: pytest_mock.MockerFixture) -> None:
+        """MP4/M4A files use __getitem__ atom access."""
+        fpath = tmp_path / "track.m4a"
+        fpath.write_text("dummy")
+
+        class MockAtomTags:
+            """Simulates mutagen.mp4.MP4Tags."""
+
+            def __getitem__(self, key: str) -> list[str]:
+                if key == "\xa9ART":
+                    return ["MP4 Artist"]
+                if key == "\xa9alb":
+                    return ["MP4 Album"]
+                raise KeyError(key)
+
+        mock_file = mocker.MagicMock()
+        mock_file.tags = MockAtomTags()
+        mocker.patch("mutagen.File", return_value=mock_file)
+
+        result = mid._extract_tags_from_file(fpath)
+        assert result is not None
+        assert result["artist"] == "MP4 Artist"
+        assert result["album"] == "MP4 Album"
