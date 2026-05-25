@@ -13,7 +13,7 @@ from maestro.utils import get_project_root
 
 _DEFAULT_CONFIG_PATHS = [
     os.environ.get("MAESTRO_CONFIG", ""),
-    str(Path(get_project_root()) / "maestro.yaml"),
+    str(Path(get_project_root()) / "configs" / "maestro.yaml"),
     str(Path.home() / ".config" / "maestro" / "maestro.yaml"),
     str(Path.home() / ".maestro.yaml"),
 ]
