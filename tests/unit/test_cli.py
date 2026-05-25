@@ -34,6 +34,29 @@ class TestCliGroup:
         assert "--log-level" in result.output
         assert "--log-path" in result.output
 
+    def test_bare_invocation_initialises_config(self) -> None:
+        """Running 'maestro' with no subcommand should call load_config with create_default=True.
+
+        This ensures the default config file is generated on first run
+        even when the user doesn't immediately invoke a subcommand.
+        """
+        from maestro.config import load_config as real_load
+
+        call_kwargs: dict = {}
+
+        def tracking_load(*args: object, **kwargs: object) -> object:
+            call_kwargs.update(kwargs)
+            return real_load(*args, **kwargs)
+
+        with patch("maestro.cli.load_config", tracking_load):
+            self.runner.invoke(cli, [])
+
+        assert "create_default" in call_kwargs, (
+            "load_config was called without create_default — "
+            "bare 'maestro' should trigger default config creation"
+        )
+        assert call_kwargs["create_default"] is True
+
     def test_version_output(self) -> None:
         """--version should display version information."""
         result = self.runner.invoke(cli, ["--version"])

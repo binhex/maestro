@@ -91,7 +91,7 @@ def _setup(
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option(
     "--database-path",
     type=click.Path(file_okay=True, dir_okay=False, resolve_path=True),
@@ -127,8 +127,9 @@ def _setup(
     metavar="<path>",
     help="Path to log file. Falls back to a default path under the project root.",
 )
+@click.pass_context
 @click.version_option(version=_VERSION, prog_name="maestro")
-def cli(**kwargs: object) -> None:
+def cli(ctx: click.Context, **kwargs: object) -> None:
     """Maestro - Organise and manage your music library.
 
     Maestro scans your music directories, analyses metadata, and helps
@@ -138,6 +139,10 @@ def cli(**kwargs: object) -> None:
     # All options are consumed by subcommands via _setup(); the **kwargs
     # catch-all is deliberate to avoid unused-argument warnings.
     del kwargs
+    # Ensure default config file is created on first invocation
+    load_config(create_default=True)
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 # ---------------------------------------------------------------------------
