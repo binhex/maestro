@@ -35,12 +35,12 @@ maestro --help
 
 | Command | Description |
 |---------|-------------|
-| `maestro scan [roots...]` | Scan download roots for new music |
+| `maestro scan [roots...]` | Scan download roots, or `--library` to scan existing library |
 | `maestro identify` | Identify albums via ID3 tags or folder heuristics |
 | `maestro check` | Check download quality against library |
 | `maestro import` | Import identified albums into library |
 | `maestro tag [--clear]` | Write or clear ID3 tags |
-| `maestro artwork` | Download album art and fanart |
+| `maestro artwork` | Download album art and fanart (run `scan --library` first) |
 | `maestro daemon` | Run scheduled pipeline in foreground |
 | `maestro config` | Display current configuration |
 
@@ -96,15 +96,33 @@ quality:
 artwork:
   album_art: cover.jpg
   fanart: fanart.jpg
+  skip_if_exists: true
   sources:
     - musicbrainz
     - lastfm
+  width: 500
+  height: 500
 
 scheduler:
   schedule: "0 3 * * *"
   run_on_start: true
   max_retries: 3
 ```
+
+### Artwork dimensions
+
+The `artwork` section supports `width` and `height` to control image quality.
+Downloaded artwork is validated against these settings before saving:
+
+| Condition | Result |
+|-----------|--------|
+| Image is larger than `width`×`height` | Resized down using high-quality Lanczos filter |
+| Either dimension is below ⅓ of target | Rejected (too small for album art) |
+| Aspect ratio exceeds 3:1 | Rejected (wrong shape, would need stretching) |
+| Image meets all criteria | Saved at original or resized size |
+
+If an image fails validation, Maestro automatically tries the next source in
+`sources` before giving up.
 
 ## Development
 
