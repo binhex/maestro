@@ -53,6 +53,7 @@ class ArtworkConfig:
     sources: list[str] = field(default_factory=lambda: ["musicbrainz", "lastfm"])
     width: int = 500
     height: int = 500
+    aspect_tolerance: float = 0.15
 
 
 @dataclass
@@ -173,6 +174,7 @@ def _default_config_dict() -> dict:
             "sources": ["musicbrainz", "lastfm"],
             "width": 500,
             "height": 500,
+            "aspect_tolerance": 0.15,
         },
         "scheduler": {
             "schedule": "0 3 * * *",
@@ -209,6 +211,7 @@ def _migrate_v1_to_v2(data: dict) -> None:
     artwork.setdefault("sources", ["musicbrainz", "lastfm"])
     artwork.setdefault("width", 500)
     artwork.setdefault("height", 500)
+    artwork.setdefault("aspect_tolerance", 0.15)
 
     scheduler = data.setdefault("scheduler", {})
     scheduler.setdefault("schedule", "0 3 * * *")

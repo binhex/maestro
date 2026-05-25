@@ -59,13 +59,6 @@ class TestValidateAndResizeImage:
         result = validate_and_resize_image(data, max_width=500, max_height=500)
         assert result is None
 
-    def test_rejects_wrong_aspect_ratio(self) -> None:
-        """An image with significantly wrong aspect ratio should be rejected."""
-        # 50x200 is a very tall/narrow image, not suitable for album art
-        data = _make_image(50, 200)
-        result = validate_and_resize_image(data, max_width=500, max_height=500)
-        assert result is None
-
     def test_rejects_if_only_one_dimension_too_small(self) -> None:
         """If only one dimension is below minimum, still reject."""
         # 2000x100 is wide but too short

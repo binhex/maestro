@@ -444,6 +444,7 @@ def artwork(ctx: click.Context) -> None:
                 sources=sources,
                 max_width=config.artwork.width,
                 max_height=config.artwork.height,
+                aspect_tolerance=config.artwork.aspect_tolerance,
             )
             source = result.get("source_used") or "none"
             click.echo(

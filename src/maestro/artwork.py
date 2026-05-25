@@ -188,6 +188,7 @@ def download_artwork_for_album(
     sources: list[str] | None = None,
     max_width: int = 500,
     max_height: int = 500,
+    aspect_tolerance: float = 0.15,
 ) -> dict[str, bool | str | None]:
     """Download album art and fanart for a given album.
 
@@ -242,7 +243,7 @@ def download_artwork_for_album(
 
             if data is not None:
                 # Validate and resize before saving
-                processed = validate_and_resize_image(data, max_width, max_height)
+                processed = validate_and_resize_image(data, max_width, max_height, aspect_tolerance)
                 if processed is not None:
                     album_art_path.write_bytes(processed)
                     result["album_art"] = True
@@ -265,7 +266,7 @@ _MIN_SIDE_RATIO = 3  # minimum dimension = max_dim / _MIN_SIDE_RATIO
 _ASPECT_TOLERANCE = 0.15  # max allowed deviation from target aspect ratio (15%)
 
 
-def _aspect_ratio_match(width: int, height: int, target_w: int, target_h: int) -> bool:
+def _aspect_ratio_match(width: int, height: int, target_w: int, target_h: int, tolerance: float = 0.15) -> bool:
     """Check if an image's aspect ratio is close enough to the target.
 
     Returns True if the ratio deviation is within ``_ASPECT_TOLERANCE``.
@@ -279,21 +280,22 @@ def _aspect_ratio_match(width: int, height: int, target_w: int, target_h: int) -
     if image_ratio == 0:
         return False
     deviation = abs(image_ratio - target_ratio) / target_ratio
-    return deviation <= _ASPECT_TOLERANCE
+    return deviation <= tolerance
 
 
 def validate_and_resize_image(
     data: bytes,
     max_width: int = 500,
     max_height: int = 500,
+    aspect_tolerance: float = 0.15,
 ) -> bytes | None:
     """Validate an image's dimensions and resize if needed.
 
     Rules:
     - If either dimension is below ``max_width / _MIN_SIDE_RATIO`` or
       ``max_height / _MIN_SIDE_RATIO``, the image is rejected (too small).
-    - If the aspect ratio (long side / short side) exceeds ``_MAX_ASPECT_RATIO``,
-      the image is rejected (wrong shape for album art).
+    - If the aspect ratio deviates from the target ``max_width/max_height``
+      by more than ``aspect_tolerance``, the image is rejected (wrong shape).
     - If the image is larger than ``(max_width, max_height)``, it is resized
       down proportionally using high-quality Lanczos filtering.
     - Otherwise the image is returned unchanged.
@@ -323,7 +325,7 @@ def validate_and_resize_image(
         return None
 
     # Check aspect ratio matches target within tolerance
-    if not _aspect_ratio_match(width, height, max_width, max_height):
+    if not _aspect_ratio_match(width, height, max_width, max_height, aspect_tolerance):
         return None
 
     # Resize if larger than target, maintaining aspect ratio
