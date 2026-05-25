@@ -262,7 +262,24 @@ def download_artwork_for_album(
 
 
 _MIN_SIDE_RATIO = 3  # minimum dimension = max_dim / _MIN_SIDE_RATIO
-_MAX_ASPECT_RATIO = 3  # max(width, height) / min(width, height) must be below this
+_ASPECT_TOLERANCE = 0.15  # max allowed deviation from target aspect ratio (15%)
+
+
+def _aspect_ratio_match(width: int, height: int, target_w: int, target_h: int) -> bool:
+    """Check if an image's aspect ratio is close enough to the target.
+
+    Returns True if the ratio deviation is within ``_ASPECT_TOLERANCE``.
+    For example, with a 500x500 target (1:1 ratio), a 600x500 image
+    (1.2:1) is accepted, but a 1000x500 image (2:1) is rejected.
+    """
+    if target_w == 0 or target_h == 0:
+        return True
+    target_ratio = target_w / target_h
+    image_ratio = width / height
+    if image_ratio == 0:
+        return False
+    deviation = abs(image_ratio - target_ratio) / target_ratio
+    return deviation <= _ASPECT_TOLERANCE
 
 
 def validate_and_resize_image(
@@ -305,10 +322,8 @@ def validate_and_resize_image(
     if width < min_w or height < min_h:
         return None
 
-    # Check aspect ratio isn't too extreme (album art should be roughly square)
-    long_side = max(width, height)
-    short_side = min(width, height)
-    if short_side > 0 and long_side / short_side > _MAX_ASPECT_RATIO:
+    # Check aspect ratio matches target within tolerance
+    if not _aspect_ratio_match(width, height, max_width, max_height):
         return None
 
     # Resize if larger than target, maintaining aspect ratio

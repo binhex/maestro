@@ -38,18 +38,20 @@ class TestValidateAndResizeImage:
         assert img.height == 500
 
     def test_resizes_to_fit_longest_dimension(self) -> None:
-        """A non-square image should resize proportionally to fit within bounds."""
-        data = _make_image(1000, 500)
+        """A larger image should resize proportionally to fit within bounds."""
+        data = _make_image(800, 800)
         result = validate_and_resize_image(data, max_width=500, max_height=500)
         assert result is not None
         img = Image.open(io.BytesIO(result))
-        # Should fit within 500x500, maintaining aspect ratio
-        assert img.width <= 500
-        assert img.height <= 500
-        # Aspect ratio should be preserved (1000:500 = 2:1)
-        # So result should be 500x250
         assert img.width == 500
-        assert img.height == 250
+        assert img.height == 500
+
+    def test_rejects_wrong_aspect_ratio(self) -> None:
+        """An image with significantly wrong aspect ratio should be rejected."""
+        # 1000x500 is 2:1 ratio vs target 1:1 — exceeds 15% tolerance
+        data = _make_image(1000, 500)
+        result = validate_and_resize_image(data, max_width=500, max_height=500)
+        assert result is None
 
     def test_rejects_too_small_image(self) -> None:
         """An image smaller than target dimensions should be rejected."""
