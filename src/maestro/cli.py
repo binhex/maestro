@@ -63,6 +63,8 @@ def _setup(
     Returns:
         Tuple of ``(config, engine, session)``.
     """
+    if config_path is None and ctx.parent is not None:
+        config_path = ctx.parent.params.get("config")
     config = load_config(config_path)
 
     if ctx.parent is None:
@@ -72,6 +74,10 @@ def _setup(
     database_path = database_path or ctx.parent.params.get("database_path")
     if not database_path:
         database_path = os.environ.get("MAESTRO_DB") or _DEFAULT_DB_PATH
+    # If the path is a directory, append the default database filename
+    db_p = Path(database_path)
+    if db_p.is_dir() or not db_p.suffix:
+        database_path = str(db_p / "maestro.db")
 
     create_logger(
         log_format=_DEFAULT_LOG_FORMAT,
@@ -94,19 +100,19 @@ def _setup(
 @click.group(invoke_without_command=True)
 @click.option(
     "--database-path",
-    type=click.Path(file_okay=True, dir_okay=False, resolve_path=True),
+    type=click.Path(file_okay=False, dir_okay=True, resolve_path=True),
     required=False,
     default=None,
-    metavar="<path>",
-    help="Path to SQLite database file. Falls back to MAESTRO_DB env var or a default path under the project root.",
+    metavar="<dir>",
+    help="Directory for the SQLite database. The database file is created inside as 'maestro.db'. Falls back to MAESTRO_DB env var or a default project path.",
 )
 @click.option(
     "--config",
-    type=click.Path(file_okay=True, dir_okay=False, resolve_path=True),
+    type=click.Path(file_okay=False, dir_okay=True, resolve_path=True),
     required=False,
     default=None,
-    metavar="<path>",
-    help="Path to YAML configuration file.",
+    metavar="<dir>",
+    help="Directory for the YAML configuration file. The config file is created inside as 'maestro.yaml'.",
 )
 @click.option(
     "--log-level",

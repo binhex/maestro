@@ -162,6 +162,12 @@ def load_config(config_path: str | None = None, *, create_default: bool = True) 
     is found and *create_default* is ``True``, a default config file is
     written to the first writable default path.
     """
+    # If config_path is a directory (no extension), append default filename
+    if config_path:
+        cp = Path(config_path)
+        if cp.is_dir() or not cp.suffix:
+            config_path = str(cp / "maestro.yaml")
+
     paths_to_try = [config_path] if config_path else [p for p in _DEFAULT_CONFIG_PATHS if p]
 
     for path in paths_to_try:
