@@ -188,7 +188,7 @@ def download_artwork_for_album(
     sources: list[str] | None = None,
     max_width: int = 500,
     max_height: int = 500,
-    aspect_tolerance: float = 0.15,
+    aspect_tolerance_percentage: int = 15,
 ) -> dict[str, bool | str | None]:
     """Download album art and fanart for a given album.
 
@@ -243,7 +243,7 @@ def download_artwork_for_album(
 
             if data is not None:
                 # Validate and resize before saving
-                processed = validate_and_resize_image(data, max_width, max_height, aspect_tolerance)
+                processed = validate_and_resize_image(data, max_width, max_height, aspect_tolerance_percentage)
                 if processed is not None:
                     album_art_path.write_bytes(processed)
                     result["album_art"] = True
@@ -287,7 +287,7 @@ def validate_and_resize_image(
     data: bytes,
     max_width: int = 500,
     max_height: int = 500,
-    aspect_tolerance: float = 0.15,
+    aspect_tolerance_percentage: int = 15,
 ) -> bytes | None:
     """Validate an image's dimensions and resize if needed.
 
@@ -295,7 +295,7 @@ def validate_and_resize_image(
     - If either dimension is below ``max_width / _MIN_SIDE_RATIO`` or
       ``max_height / _MIN_SIDE_RATIO``, the image is rejected (too small).
     - If the aspect ratio deviates from the target ``max_width/max_height``
-      by more than ``aspect_tolerance``, the image is rejected (wrong shape).
+      by more than ``aspect_tolerance_percentage``, the image is rejected (wrong shape).
     - If the image is larger than ``(max_width, max_height)``, it is resized
       down proportionally using high-quality Lanczos filtering.
     - Otherwise the image is returned unchanged.
@@ -325,7 +325,8 @@ def validate_and_resize_image(
         return None
 
     # Check aspect ratio matches target within tolerance
-    if not _aspect_ratio_match(width, height, max_width, max_height, aspect_tolerance):
+    tolerance = aspect_tolerance_percentage / 100.0
+    if not _aspect_ratio_match(width, height, max_width, max_height, tolerance):
         return None
 
     # Resize if larger than target, maintaining aspect ratio
