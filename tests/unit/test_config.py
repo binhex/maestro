@@ -8,6 +8,12 @@ from maestro.config import ArtworkConfig, Config, QualityConfig, RootEntry, Sche
 
 
 class TestConfigDataclass:
+    def test_default_sources_includes_duckduckgo(self) -> None:
+        """Default ArtworkConfig should have duckduckgo as first source."""
+        from maestro.config import ArtworkConfig
+        config = ArtworkConfig()
+        assert config.sources == ["duckduckgo", "musicbrainz", "lastfm"]
+
     def test_default_config(self) -> None:
         config = Config()
         assert config.quality.min_acceptable == 3

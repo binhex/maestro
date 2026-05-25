@@ -50,7 +50,7 @@ class ArtworkConfig:
     album_art: str = "cover.jpg"
     fanart: str = "fanart.jpg"
     skip_if_exists: bool = True
-    sources: list[str] = field(default_factory=lambda: ["musicbrainz", "lastfm"])
+    sources: list[str] = field(default_factory=lambda: ["duckduckgo", "musicbrainz", "lastfm"])
     width: int = 500
     height: int = 500
     aspect_tolerance_percentage: int = 5
@@ -171,7 +171,7 @@ def _default_config_dict() -> dict:
             "album_art": "cover.jpg",
             "fanart": "fanart.jpg",
             "skip_if_exists": True,
-            "sources": ["musicbrainz", "lastfm"],
+            "sources": ["duckduckgo", "musicbrainz", "lastfm"],
             "width": 500,
             "height": 500,
             "aspect_tolerance_percentage": 5,
@@ -208,7 +208,7 @@ def _migrate_v1_to_v2(data: dict) -> None:
     artwork = data.setdefault("artwork", {})
     artwork.setdefault("fanart", "fanart.jpg")
     artwork.setdefault("skip_if_exists", True)
-    artwork.setdefault("sources", ["musicbrainz", "lastfm"])
+    artwork.setdefault("sources", ["duckduckgo", "musicbrainz", "lastfm"])
     artwork.setdefault("width", 500)
     artwork.setdefault("height", 500)
     artwork.setdefault("aspect_tolerance_percentage", 5)
