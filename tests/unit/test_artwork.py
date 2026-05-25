@@ -441,6 +441,120 @@ class TestFetchFanartLastfm:
 
 
 # ===================================================================
+# fetch_album_art_duckduckgo
+# ===================================================================
+
+
+class TestFetchAlbumArtDuckDuckGo:
+    """Tests for fetch_album_art_duckduckgo."""
+
+    def test_returns_bytes_on_success(self, mocker) -> None:
+        """A successful search and download should return image bytes."""
+        import io
+
+        from PIL import Image
+
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        img = Image.new("RGB", (500, 500), color="red")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=95)
+        fake_image = buf.getvalue()
+
+        mock_results = [
+            {"image": "https://example.com/cover1.jpg"},
+            {"image": "https://example.com/cover2.jpg"},
+        ]
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = mock_results
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = fake_image
+        mocker.patch("maestro.artwork.requests.get", return_value=mock_response)
+
+        result = fetch_album_art_duckduckgo("Test Artist", "Test Album")
+        assert result is not None
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+    def test_returns_none_on_empty_results(self, mocker) -> None:
+        """No search results should return None."""
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = []
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        result = fetch_album_art_duckduckgo("Unknown", "Unknown")
+        assert result is None
+
+    def test_returns_none_when_all_fail_validation(self, mocker) -> None:
+        """When all results fail validation, should return None."""
+        import io
+
+        from PIL import Image
+
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        img = Image.new("RGB", (10, 10), color="red")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=95)
+        small_image = buf.getvalue()
+
+        mock_results = [
+            {"image": "https://example.com/small1.jpg"},
+            {"image": "https://example.com/small2.jpg"},
+        ]
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = mock_results
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = small_image
+        mocker.patch("maestro.artwork.requests.get", return_value=mock_response)
+
+        result = fetch_album_art_duckduckgo("Test", "Album")
+        assert result is None
+
+    def test_skips_invalid_urls_and_tries_next(self, mocker) -> None:
+        """If one URL fails to download, the next should be tried."""
+        import io
+
+        from PIL import Image
+
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        img = Image.new("RGB", (500, 500), color="red")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=95)
+        valid_image = buf.getvalue()
+
+        mock_results = [
+            {"image": "https://example.com/broken.jpg"},
+            {"image": "https://example.com/valid.jpg"},
+        ]
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = mock_results
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        mock_fail = mocker.MagicMock()
+        mock_fail.status_code = 404
+        mock_success = mocker.MagicMock()
+        mock_success.status_code = 200
+        mock_success.content = valid_image
+        mocker.patch(
+            "maestro.artwork.requests.get",
+            side_effect=[mock_fail, mock_success],
+        )
+
+        result = fetch_album_art_duckduckgo("Test", "Album")
+        assert result is not None
+
+
+# ===================================================================
 # download_artwork_for_album
 # ===================================================================
 

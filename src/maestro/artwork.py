@@ -13,6 +13,11 @@ from pathlib import Path
 
 import requests
 
+try:
+    from duckduckgo_search import DDGS  # noqa: TC002
+except ImportError:
+    DDGS = None  # type: ignore
+
 # Default headers for HTTP requests
 _HEADERS = {
     "User-Agent": "Maestro/1.0 (music organizer; https://github.com/binhex/maestro)",
@@ -209,6 +214,59 @@ def fetch_fanart_lastfm(artist: str, api_key: str | None = None) -> bytes | None
             return img_resp.content
     except Exception:  # noqa: BLE001
         pass
+
+    return None
+
+
+def fetch_album_art_duckduckgo(
+    artist: str,
+    album: str,
+    max_results: int = 5,
+) -> bytes | None:
+    """Fetch album art via DuckDuckGo image search.
+
+    Searches for ``{artist} {album} cover``, downloads results in order,
+    and returns the first image that passes validation.
+
+    Args:
+        artist: Artist name.
+        album: Album title.
+        max_results: Maximum number of search results to try.
+
+    Returns:
+        Raw image bytes, or ``None`` if not found or all fail validation.
+    """
+    if DDGS is None:
+        return None
+
+    query = f"{artist} {album} cover"
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.images(query, max_results=max_results))
+    except Exception:  # noqa: BLE001
+        return None
+
+    if not results:
+        return None
+
+    for result in results:
+        url = result.get("image")
+        if not url:
+            continue
+        try:
+            resp = requests.get(url, timeout=15)
+            if resp.status_code != 200:
+                continue
+            processed = validate_and_resize_image(
+                resp.content,
+                max_width=500,
+                max_height=500,
+                aspect_tolerance_percentage=5,
+            )
+            if processed is not None:
+                return processed
+        except Exception:  # noqa: BLE001
+            continue
 
     return None
 
