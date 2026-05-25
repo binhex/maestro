@@ -32,6 +32,7 @@ dependencies = [
     "mutagen",
     "croniter",
     "musicbrainzngs",
+    "pillow>=12.2.0",
 ]
 
 [project.scripts]
@@ -92,6 +93,10 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 disable_error_code = ["list-item", "arg-type", "no-untyped-def"]
 
+[[tool.mypy.overrides]]
+module = "PIL"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 minversion = "7.0"
@@ -135,4 +140,5 @@ dev = [
     "types-requests>=2.31.0",
     "types-pyyaml>=6.0.0",
     "pre-commit",
+    "types-pillow>=10.2.0.20240822",
 ]

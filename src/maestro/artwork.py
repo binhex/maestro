@@ -186,6 +186,8 @@ def download_artwork_for_album(
     fanart_filename: str = "fanart.jpg",
     lastfm_api_key: str | None = None,
     sources: list[str] | None = None,
+    max_width: int = 500,
+    max_height: int = 500,
 ) -> dict[str, bool | str | None]:
     """Download album art and fanart for a given album.
 
@@ -202,6 +204,9 @@ def download_artwork_for_album(
         lastfm_api_key: Last.fm API key (optional).
         sources: Ordered list of source names to try.
             Default: ``['musicbrainz', 'lastfm']``.
+        max_width: Target width for resizing (images too small or wrong
+            aspect ratio are rejected).
+        max_height: Target height for resizing.
 
     Returns:
         Dict with keys ``'album_art'`` (bool), ``'fanart'`` (bool),
@@ -229,18 +234,20 @@ def download_artwork_for_album(
         result["source_used"] = "cached"
     else:
         for source in sources:
+            data: bytes | None = None
             if source == "musicbrainz":
                 data = fetch_album_art_musicbrainz(artist, album)
             elif source == "lastfm":
                 data = fetch_album_art_lastfm(artist, album, lastfm_api_key)
-            else:
-                data = None
 
             if data is not None:
-                album_art_path.write_bytes(data)
-                result["album_art"] = True
-                result["source_used"] = source
-                break
+                # Validate and resize before saving
+                processed = validate_and_resize_image(data, max_width, max_height)
+                if processed is not None:
+                    album_art_path.write_bytes(processed)
+                    result["album_art"] = True
+                    result["source_used"] = source
+                    break
 
     # Try to fetch fanart from Last.fm (only if API key is available)
     if fanart_path.exists():
@@ -252,3 +259,68 @@ def download_artwork_for_album(
             result["fanart"] = True
 
     return result
+
+
+_MIN_SIDE_RATIO = 3  # minimum dimension = max_dim / _MIN_SIDE_RATIO
+_MAX_ASPECT_RATIO = 3  # max(width, height) / min(width, height) must be below this
+
+
+def validate_and_resize_image(
+    data: bytes,
+    max_width: int = 500,
+    max_height: int = 500,
+) -> bytes | None:
+    """Validate an image's dimensions and resize if needed.
+
+    Rules:
+    - If either dimension is below ``max_width / _MIN_SIDE_RATIO`` or
+      ``max_height / _MIN_SIDE_RATIO``, the image is rejected (too small).
+    - If the aspect ratio (long side / short side) exceeds ``_MAX_ASPECT_RATIO``,
+      the image is rejected (wrong shape for album art).
+    - If the image is larger than ``(max_width, max_height)``, it is resized
+      down proportionally using high-quality Lanczos filtering.
+    - Otherwise the image is returned unchanged.
+
+    Args:
+        data: Raw image bytes (JPEG, PNG, etc.).
+        max_width: Maximum target width in pixels.
+        max_height: Maximum target height in pixels.
+
+    Returns:
+        Processed image bytes, or ``None`` if the image was rejected.
+    """
+    try:
+        import io
+
+        from PIL import Image as PilImage
+
+        img = PilImage.open(io.BytesIO(data))
+        width, height = img.size
+    except Exception:  # noqa: BLE001
+        return None
+
+    # Ensure both dimensions meet the minimum size threshold
+    min_w = max_width // _MIN_SIDE_RATIO
+    min_h = max_height // _MIN_SIDE_RATIO
+    if width < min_w or height < min_h:
+        return None
+
+    # Check aspect ratio isn't too extreme (album art should be roughly square)
+    long_side = max(width, height)
+    short_side = min(width, height)
+    if short_side > 0 and long_side / short_side > _MAX_ASPECT_RATIO:
+        return None
+
+    # Resize if larger than target, maintaining aspect ratio
+    resized = False
+    if width > max_width or height > max_height:
+        img.thumbnail((max_width, max_height), PilImage.LANCZOS)
+        resized = True
+
+    if not resized:
+        return data
+
+    output = io.BytesIO()
+    fmt = img.format or "JPEG"
+    img.save(output, fmt, quality=95)
+    return output.getvalue()

@@ -442,6 +442,8 @@ def artwork(ctx: click.Context) -> None:
                 fanart_filename=config.artwork.fanart,
                 lastfm_api_key=api_key,
                 sources=sources,
+                max_width=config.artwork.width,
+                max_height=config.artwork.height,
             )
             source = result.get("source_used") or "none"
             click.echo(

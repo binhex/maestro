@@ -47,6 +47,8 @@ class ArtworkConfig:
     fanart: str = "fanart.jpg"
     skip_if_exists: bool = True
     sources: list[str] = field(default_factory=lambda: ["musicbrainz", "lastfm"])
+    width: int = 500
+    height: int = 500
 
 
 @dataclass
@@ -149,6 +151,8 @@ def _generate_default_yaml() -> str:
                 "fanart": "fanart.jpg",
                 "skip_if_exists": True,
                 "sources": ["musicbrainz", "lastfm"],
+                "width": 500,
+                "height": 500,
             },
             "scheduler": {
                 "schedule": "0 3 * * *",

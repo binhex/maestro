@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from PIL import Image as PilImage
 
 from maestro.artwork import (
     download_artwork_for_album,
@@ -12,6 +15,19 @@ from maestro.artwork import (
     fetch_fanart_lastfm,
     get_artwork_paths,
 )
+
+
+def _test_image(width: int = 300, height: int = 300) -> bytes:
+    """Create a test image and return JPEG bytes."""
+    from PIL import Image as PilImage
+    import io
+    img = PilImage.new("RGB", (width, height), color="red")
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
+_TEST_IMAGE = _test_image()
 
 if TYPE_CHECKING:
     import pytest_mock
@@ -451,7 +467,7 @@ class TestDownloadArtworkForAlbum:
         # First requests.get (CAA) returns art bytes
         mock_caa_response = mocker.MagicMock()
         mock_caa_response.status_code = 200
-        mock_caa_response.content = b"cover_art_bytes"
+        mock_caa_response.content = _TEST_IMAGE
 
         # API response for fanart
         mock_api_response = mocker.MagicMock()
@@ -467,7 +483,7 @@ class TestDownloadArtworkForAlbum:
         # Image download for fanart
         mock_img_response = mocker.MagicMock()
         mock_img_response.status_code = 200
-        mock_img_response.content = b"fanart_bytes"
+        mock_img_response.content = _TEST_IMAGE
 
         def mock_get_side_effect(url: str, **kwargs: Any) -> Any:
             if "coverartarchive" in url:
@@ -490,8 +506,8 @@ class TestDownloadArtworkForAlbum:
         assert result == {"album_art": True, "fanart": True, "source_used": "musicbrainz"}
         assert (album_dir / "cover.jpg").exists()
         assert (album_dir / "fanart.jpg").exists()
-        assert (album_dir / "cover.jpg").read_bytes() == b"cover_art_bytes"
-        assert (album_dir / "fanart.jpg").read_bytes() == b"fanart_bytes"
+        assert (album_dir / "cover.jpg").read_bytes() == _TEST_IMAGE
+        assert (album_dir / "fanart.jpg").read_bytes() == _TEST_IMAGE
 
     def test_handles_missing_api_key(
         self,
@@ -512,7 +528,7 @@ class TestDownloadArtworkForAlbum:
 
         mock_caa_response = mocker.MagicMock()
         mock_caa_response.status_code = 200
-        mock_caa_response.content = b"cover_art_bytes"
+        mock_caa_response.content = _TEST_IMAGE
 
         mocker.patch("maestro.artwork.requests.get", return_value=mock_caa_response)
 
@@ -576,7 +592,7 @@ class TestDownloadArtworkForAlbum:
 
         mock_caa_response = mocker.MagicMock()
         mock_caa_response.status_code = 200
-        mock_caa_response.content = b"cover_art_bytes"
+        mock_caa_response.content = _TEST_IMAGE
 
         mocker.patch("maestro.artwork.requests.get", return_value=mock_caa_response)
 
@@ -609,7 +625,7 @@ class TestDownloadArtworkForAlbum:
 
         mock_caa_response = mocker.MagicMock()
         mock_caa_response.status_code = 200
-        mock_caa_response.content = b"cover_art_bytes"
+        mock_caa_response.content = _TEST_IMAGE
 
         mocker.patch("maestro.artwork.requests.get", return_value=mock_caa_response)
 
@@ -653,7 +669,7 @@ class TestDownloadArtworkForAlbum:
 
         mock_img_response = mocker.MagicMock()
         mock_img_response.status_code = 200
-        mock_img_response.content = b"lastfm_cover"
+        mock_img_response.content = _TEST_IMAGE
 
         def mock_get_side_effect(url: str, **kwargs: Any) -> Any:
             if "ws.audioscrobbler.com" in url:
@@ -672,7 +688,7 @@ class TestDownloadArtworkForAlbum:
         )
 
         assert result["album_art"] is True
-        assert (album_dir / "cover.jpg").read_bytes() == b"lastfm_cover"
+        assert (album_dir / "cover.jpg").read_bytes() == _TEST_IMAGE
 
     def test_custom_filenames(
         self,
@@ -693,7 +709,7 @@ class TestDownloadArtworkForAlbum:
 
         mock_caa_response = mocker.MagicMock()
         mock_caa_response.status_code = 200
-        mock_caa_response.content = b"cover_art_bytes"
+        mock_caa_response.content = _TEST_IMAGE
 
         mocker.patch("maestro.artwork.requests.get", return_value=mock_caa_response)
 
@@ -758,7 +774,7 @@ class TestDownloadArtworkForAlbum:
 
         mock_img_response = mocker.MagicMock()
         mock_img_response.status_code = 200
-        mock_img_response.content = b"lastfm_only"
+        mock_img_response.content = _TEST_IMAGE
 
         def mock_get_side_effect(url: str, **kwargs: Any) -> Any:
             if "ws.audioscrobbler.com" in url:
@@ -783,7 +799,7 @@ class TestDownloadArtworkForAlbum:
 
         assert result["album_art"] is True
         mock_search.assert_not_called()
-        assert (album_dir / "cover.jpg").read_bytes() == b"lastfm_only"
+        assert (album_dir / "cover.jpg").read_bytes() == _TEST_IMAGE
 
     def test_all_sources_fail_still_returns_false(
         self,
