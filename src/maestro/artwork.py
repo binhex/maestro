@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 # Default headers for HTTP requests
 _HEADERS = {
@@ -81,7 +81,7 @@ def fetch_album_art_musicbrainz(artist: str, album: str) -> bytes | None:
         Raw image bytes, or ``None`` if not found or an error occurs.
     """
     try:
-        import musicbrainzngs  # type: ignore[import-not-found]
+        import musicbrainzngs  # type: ignore[import-untyped]
 
         musicbrainzngs.set_useragent(
             "maestro",
@@ -112,7 +112,7 @@ def fetch_album_art_musicbrainz(artist: str, album: str) -> bytes | None:
         url = f"https://coverartarchive.org/release/{release_id}/front"
         resp = requests.get(url, headers=_HEADERS, timeout=15)
         if resp.status_code == 200:
-            return resp.content  # type: ignore[no-any-return]
+            return resp.content
     except Exception:  # noqa: BLE001
         pass
 
@@ -162,7 +162,7 @@ def fetch_album_art_lastfm(
 
         img_resp = requests.get(largest, headers=_HEADERS, timeout=15)
         if img_resp.status_code == 200:
-            return img_resp.content  # type: ignore[no-any-return]
+            return img_resp.content
     except Exception:  # noqa: BLE001
         pass
 
@@ -206,7 +206,7 @@ def fetch_fanart_lastfm(artist: str, api_key: str | None = None) -> bytes | None
 
         img_resp = requests.get(largest, headers=_HEADERS, timeout=15)
         if img_resp.status_code == 200:
-            return img_resp.content  # type: ignore[no-any-return]
+            return img_resp.content
     except Exception:  # noqa: BLE001
         pass
 

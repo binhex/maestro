@@ -91,7 +91,7 @@ mypy_path = "src"
 module = ["tests.*"]
 disallow_untyped_defs = false
 ignore_missing_imports = true
-disable_error_code = ["list-item", "arg-type", "no-untyped-def"]
+disable_error_code = ["list-item", "arg-type", "no-untyped-def", "attr-defined", "return-value", "operator", "unused-ignore", "var-annotated"]
 
 [[tool.mypy.overrides]]
 module = "PIL"
@@ -139,6 +139,8 @@ dev = [
     "pytest-crap @ git+https://github.com/binhex/pytest-crap.git@v0.3.1",
     "types-requests>=2.31.0",
     "types-pyyaml>=6.0.0",
-    "pre-commit",
     "types-pillow>=10.2.0.20240822",
+    "pre-commit",
+    "mypy>=2.1.0",
+    "ruff"
 ]

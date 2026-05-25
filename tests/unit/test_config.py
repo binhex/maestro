@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from maestro.config import ArtworkConfig, Config, QualityConfig, RootEntry, SchedulerConfig, load_config
 

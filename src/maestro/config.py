@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from maestro.utils import get_project_root
 
@@ -129,7 +129,7 @@ def _generate_default_yaml() -> str:
         "#\n"
         "# Missing variables are silently collapsed from the path.\n"
     )
-    return comment + yaml.dump(  # type: ignore[no-any-return]
+    return comment + yaml.dump(
         _default_config_dict(),
         default_flow_style=False,
         sort_keys=False,
