@@ -99,40 +99,44 @@ class Config:
 
 def _generate_default_yaml() -> str:
     """Return a default config YAML string with all settings and examples."""
-    return yaml.dump({
-        "library_roots": [
-            {
-                "path": "/path/to/music/library",
-                "type": "library",
-                "enabled": True,
-                "pattern": "{artist}/{album}/{filename}.{ext}",
+    return yaml.dump(  # type: ignore[no-any-return]
+        {
+            "library_roots": [
+                {
+                    "path": "/path/to/music/library",
+                    "type": "library",
+                    "enabled": True,
+                    "pattern": "{artist}/{album}/{filename}.{ext}",
+                },
+            ],
+            "download_roots": [
+                {
+                    "path": "/path/to/downloads",
+                    "type": "download",
+                    "enabled": True,
+                    "pattern": "{downloader}/{album}",
+                },
+            ],
+            "quality": {
+                "min_acceptable": 3,
+                "delete_replaced": False,
             },
-        ],
-        "download_roots": [
-            {
-                "path": "/path/to/downloads",
-                "type": "download",
-                "enabled": True,
-                "pattern": "{downloader}/{album}",
+            "artwork": {
+                "album_art": "cover.jpg",
+                "fanart": "fanart.jpg",
+                "skip_if_exists": True,
+                "sources": ["musicbrainz", "lastfm"],
             },
-        ],
-        "quality": {
-            "min_acceptable": 3,
-            "delete_replaced": False,
+            "scheduler": {
+                "schedule": "0 3 * * *",
+                "run_on_start": True,
+                "retry_failed": True,
+                "max_retries": 3,
+            },
         },
-        "artwork": {
-            "album_art": "cover.jpg",
-            "fanart": "fanart.jpg",
-            "skip_if_exists": True,
-            "sources": ["musicbrainz", "lastfm"],
-        },
-        "scheduler": {
-            "schedule": "0 3 * * *",
-            "run_on_start": True,
-            "retry_failed": True,
-            "max_retries": 3,
-        },
-    }, default_flow_style=False, sort_keys=False)
+        default_flow_style=False,
+        sort_keys=False,
+    )
 
 
 def _write_default_config(target_path: str) -> str:

@@ -52,8 +52,7 @@ class TestCliGroup:
             self.runner.invoke(cli, [])
 
         assert "create_default" in call_kwargs, (
-            "load_config was called without create_default — "
-            "bare 'maestro' should trigger default config creation"
+            "load_config was called without create_default — bare 'maestro' should trigger default config creation"
         )
         assert call_kwargs["create_default"] is True
 
