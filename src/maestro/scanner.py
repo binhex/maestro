@@ -204,7 +204,7 @@ def _create_artist_album_track(
         session.add(album)
         session.flush()
 
-    # Get or create Track
+    # Get or create Track (skip file hash — too expensive for library scans)
     track_path_str = str(track_path)
     track = session.query(Track).filter_by(file_path=track_path_str).first()
     if track:
@@ -216,7 +216,6 @@ def _create_artist_album_track(
         title=track_path.stem,
         file_path=track_path_str,
         file_size=file_stat.st_size,
-        file_hash=_get_file_hash(track_path),
         format=track_path.suffix.lstrip(".").upper(),
     )
     session.add(track)
