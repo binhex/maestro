@@ -365,8 +365,8 @@ class TestIdentifyDownloadNoTags:
         tmp_path: Path,
         mocker: pytest_mock.MockerFixture,
     ) -> None:
-        """When heuristic finds no separator, album is the folder name."""
-        dl_dir = tmp_path / "JustAlbumName"
+        """When heuristic finds no separator, parent dir is used as artist."""
+        dl_dir = tmp_path / "Source" / "JustAlbumName"
         dl_dir.mkdir(parents=True, exist_ok=True)
 
         session = create_session(engine)
@@ -379,9 +379,33 @@ class TestIdentifyDownloadNoTags:
         identify_download(dl, session)
         session.close()
 
-        assert dl.identified_artist is None
+        assert dl.identified_artist == "Source"
         assert dl.identified_album == "JustAlbumName"
         assert dl.match_type is None
+
+
+    def test_heuristic_uses_parent_dir_as_artist(
+        self,
+        engine: Engine,
+        tmp_path: Path,
+        mocker: pytest_mock.MockerFixture,
+    ) -> None:
+        """When heuristic finds no separator, the parent dir is used as artist."""
+        dl_dir = tmp_path / "Carl Cox" / "At The End Of A Cliche"
+        dl_dir.mkdir(parents=True, exist_ok=True)
+
+        session = create_session(engine)
+        dl = Download(source_path=str(dl_dir), status="new")
+        session.add(dl)
+        session.flush()
+
+        mocker.patch("maestro.identifier._read_id3_tags", return_value=None)
+
+        identify_download(dl, session)
+        session.close()
+
+        assert dl.identified_artist == "Carl Cox"
+        assert dl.identified_album == "At The End Of A Cliche"
 
     def test_heuristic_with_library_match(
         self,

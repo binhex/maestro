@@ -437,6 +437,12 @@ def identify_download(download: Download, session: Session) -> None:
         match_type,
     )
 
+    # After heuristic: if artist is still None, use the parent directory name.
+    # This handles {artist}/{album} download structures where the folder
+    # name is only the album and the artist is the parent directory.
+    if artist_name is None and dl_path.parent.name and dl_path.parent.name != dl_path.name:
+        artist_name = dl_path.parent.name
+
     download.identified_artist = artist_name
     download.identified_album = album_title or None
     download.identified_year = year
