@@ -213,10 +213,16 @@ class TestImport:
     def test_import_no_library_roots(self) -> None:
         """Import with no library roots should show message."""
         mock_config = Mock()
+        mock_config.download_roots = []
         mock_config.library_roots = []
         mock_setup = Mock(return_value=(mock_config, Mock(), Mock()))
 
-        with patch("maestro.cli._setup", mock_setup):
+        with (
+            patch("maestro.cli._setup", mock_setup),
+            patch(
+                "maestro.identifier.identify_downloads",
+            ),
+        ):
             result = self.runner.invoke(cli, ["import"])
             assert result.exit_code == 0
             assert "No enabled library roots" in result.output
@@ -229,6 +235,7 @@ class TestImport:
         mock_lib_root.destination_pattern = None
 
         mock_config = Mock()
+        mock_config.download_roots = []
         mock_config.dry_run = False
         mock_config.library_roots = [mock_lib_root]
         mock_config.quality.delete_replaced = False
@@ -248,6 +255,8 @@ class TestImport:
         with (
             patch("maestro.cli._setup", mock_setup),
             patch("maestro.organizer.import_downloads", mock_import_dl),
+            patch("maestro.identifier.identify_downloads"),
+            patch("maestro.scanner.scan_download_root"),
         ):
             result = self.runner.invoke(cli, ["import"])
             assert result.exit_code == 0
@@ -593,6 +602,73 @@ class TestCliArtworkDisabled:
         ):
             result = self.runner.invoke(cli, ["artwork"])
             assert "disabled" in result.output.lower()
+
+
+class TestImportAutoPipeline:
+    """Tests that 'maestro import' auto-scans and identifies before importing."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    @patch("maestro.cli.load_config")
+    @patch("maestro.cli.get_engine")
+    @patch("maestro.cli.init_db")
+    def test_import_auto_scans_and_identifies(
+        self,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        mock_load_config: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """When import is called with no identified downloads, it should
+        auto-scan download roots and identify before importing."""
+        from maestro.config import Config, RootEntry
+
+        # Create a temp download directory with audio files
+        dl_root = tmp_path / "downloads"
+        album_dir = dl_root / "TestArtist" / "TestAlbum"
+        album_dir.mkdir(parents=True)
+        (album_dir / "track01.flac").write_bytes(b"audio data 01")
+        (album_dir / "track02.flac").write_bytes(b"audio data 02")
+
+        # Configure download root + library root
+        config = Config(
+            download_roots=[
+                RootEntry(path=str(dl_root), type="download", enabled=True),
+            ],
+            library_roots=[
+                RootEntry(
+                    path=str(tmp_path / "library"),
+                    type="library",
+                    enabled=True,
+                    destination_pattern="{artist}/{album}/{filename}.{ext}",
+                ),
+            ],
+        )
+        config.dry_run = False
+        mock_load_config.return_value = config
+
+        # Patch create_session to return a real session
+        from maestro.db.core import create_session, get_engine, init_db
+
+        db_path = str(tmp_path / "test.db")
+        engine = get_engine(db_path, echo=False)
+        init_db(engine)
+        session = create_session(engine)
+        mock_get_engine.return_value = engine
+
+        with (
+            patch("maestro.cli.create_session", return_value=session),
+            patch("maestro.scanner.scan_download_root") as mock_scan,
+            patch("maestro.identifier.identify_downloads") as mock_identify,
+            patch("maestro.organizer.import_downloads") as mock_import,
+        ):
+            self.runner.invoke(cli, ["import"])
+
+            # After fix: scan and identify should have been called before import
+            assert mock_scan.called, "import should auto-scan download roots before importing"
+            assert mock_identify.called, "import should auto-identify downloads before importing"
+            assert mock_import.called, "import should call import_downloads"
 
 
 class TestCliConfigDisplay:

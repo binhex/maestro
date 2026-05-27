@@ -307,11 +307,31 @@ def check(ctx: click.Context) -> None:
 )
 @click.pass_context
 def import_(ctx: click.Context, dry_run: bool) -> None:
-    """Import identified downloads into the music library."""
+    """Import identified downloads into the music library.
+
+    Automatically scans download roots and identifies new downloads
+    before importing, so a single ``maestro import`` is equivalent to
+    running ``maestro scan`` + ``maestro identify`` + ``maestro import``
+    in sequence.
+    """
+    from maestro.identifier import identify_downloads
     from maestro.organizer import import_downloads
+    from maestro.scanner import scan_download_root
 
     config, _engine, session = _setup(ctx)
     try:
+        # --- 1. Auto-scan download roots ---
+        download_roots = [r for r in config.download_roots if r.enabled]
+        for entry in download_roots:
+            click.echo(f"Scanning download root {entry.path}...")
+            scan_download_root(session, entry.path, pattern=getattr(entry, "pattern", None))
+
+        # --- 2. Auto-identify new downloads ---
+        identified = identify_downloads(session)
+        if identified:
+            click.echo(f"Identified {len(identified)} download(s).")
+
+        # --- 3. Import identified downloads ---
         library_roots = [r for r in config.library_roots if r.enabled]
         if not library_roots:
             click.echo("No enabled library roots in config.")
