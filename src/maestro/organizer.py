@@ -154,51 +154,6 @@ def _is_audio_file(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _simulate_quality_skip(
-    session: Session,
-    download: Download,
-    audio_files: list[Path],
-) -> bool:
-    """Check if all audio files should be skipped due to equal/better quality in library.
-
-    Returns True if the entire album should be skipped.
-    """
-    if download.identified_album_id is None:
-        return False
-
-    existing_album = session.get(Album, download.identified_album_id)
-    if not existing_album or not existing_album.tracks:
-        return False
-
-    skip_count = 0
-    for afile in audio_files:
-        track_key = afile.stem.lower()
-        if _check_file_should_skip(existing_album.tracks, afile, track_key):
-            skip_count += 1
-    return skip_count == len(audio_files)
-
-
-def _check_file_should_skip(
-    tracks: list[Track],
-    afile: Path,
-    track_key: str,
-) -> bool:
-    """Check if a single audio file matches a track that should be skipped."""
-    for t in tracks:
-        if not t.file_path or not t.format:
-            continue
-        if Path(t.file_path).stem.lower() != track_key:
-            continue
-        decision = compare_tracks(
-            (t.format, t.bitrate),
-            (afile.suffix.lstrip(".").upper(), None),
-        )
-        if decision == "skip":
-            return True
-        break  # first matching track with format determines the result
-    return False
-
-
 def _dry_run_actions_for_files(
     audio_files: list[Path],
     artist_name: str,
@@ -240,30 +195,88 @@ def _process_dl_simulate(
     dest_root: Path,
     destination_pattern: str,
     session: Session,
-) -> list[str]:
-    """Process a single download in dry-run mode."""
+) -> dict[str, Any]:
+    """Process a single download in dry-run mode.
+
+    Returns a dict with ``actions`` (list of action strings), and counts
+    for ``skipped``, ``imported``, ``replaced``, and ``errors``.
+    """
+    result: dict[str, Any] = {
+        "actions": [],
+        "skipped": 0,
+        "imported": 0,
+        "replaced": 0,
+        "errors": 0,
+    }
+
     source = Path(dl.source_path)
     if not source.is_dir():
-        return [f"Would skip: {source} (source directory missing)"]
+        result["actions"].append(f"Would skip: {source} (source directory missing)")
+        result["errors"] += 1
+        return result
 
     artist_name = dl.identified_artist or "Unknown Artist"
     album_title = dl.identified_album or source.name
     audio_files = _list_audio_files(source)
     if not audio_files:
-        return [f"Would skip: {source} (no audio files)"]
+        result["actions"].append(f"Would skip: {source} (no audio files)")
+        result["errors"] += 1
+        return result
 
-    if _simulate_quality_skip(session, dl, audio_files):
-        return [f"Would skip: {source.name} (all tracks equal/better quality in library)"]
+    # Resolve existing album tracks for per-file quality comparison
+    existing_tracks: list[Track] = []
+    if dl.identified_album_id is not None:
+        existing_album = session.get(Album, dl.identified_album_id)
+        if existing_album and existing_album.tracks:
+            existing_tracks = existing_album.tracks
 
-    return _dry_run_actions_for_files(
-        audio_files,
-        artist_name,
-        album_title,
-        dl.identified_year,
-        dl.identified_genre,
-        dest_root,
-        destination_pattern,
-    )
+    # Check each audio file individually, generating per-file actions
+    for afile in audio_files:
+        track_key = afile.stem.lower()
+
+        # Check if this file would be skipped due to quality
+        file_should_skip = False
+        for t in existing_tracks:
+            if not t.file_path or not t.format:
+                continue
+            if Path(t.file_path).stem.lower() != track_key:
+                continue
+            decision = compare_tracks(
+                (t.format, t.bitrate),
+                (afile.suffix.lstrip(".").upper(), None),
+            )
+            if decision == "skip":
+                file_should_skip = True
+                break
+            break  # first matching track determines the result
+
+        if file_should_skip:
+            result["actions"].append(f"Would skip: {afile.name} (better quality in library)")
+            result["skipped"] += 1
+            continue
+
+        # Generate move/replace action for this file
+        stem = _fs_safe(afile.stem)
+        ext = afile.suffix.lstrip(".")
+        variables: dict[str, str] = {
+            "artist": artist_name or "",
+            "album": album_title or "",
+            "filename": stem,
+            "ext": ext,
+            "year": str(dl.identified_year) if dl.identified_year else "",
+            "genre": dl.identified_genre or "",
+        }
+        relative_path = render_path(variables, destination_pattern)
+        full_target = (dest_root / relative_path).resolve()
+
+        if full_target.exists():
+            result["actions"].append(f"Would replace: {afile} \u2192 {full_target}")
+            result["replaced"] += 1
+        else:
+            result["actions"].append(f"Would move: {afile} \u2192 {full_target}")
+            result["imported"] += 1
+
+    return result
 
 
 def _simulate_imports(
@@ -272,16 +285,26 @@ def _simulate_imports(
     dest_root: Path,
     destination_pattern: str,
 ) -> dict[str, Any]:
-    """Simulate imports for dry-run mode, returning action descriptions."""
+    """Simulate imports for dry-run mode, returning action descriptions and counts."""
     actions: list[str] = []
+    total_skipped = 0
+    total_imported = 0
+    total_replaced = 0
+    total_errors = 0
+
     for dl in downloads:
-        actions.extend(_process_dl_simulate(dl, dest_root, destination_pattern, session))
+        dl_result = _process_dl_simulate(dl, dest_root, destination_pattern, session)
+        actions.extend(dl_result["actions"])
+        total_skipped += dl_result["skipped"]
+        total_imported += dl_result["imported"]
+        total_replaced += dl_result["replaced"]
+        total_errors += dl_result["errors"]
 
     return {
-        "imported": 0,
-        "skipped": 0,
-        "replaced": 0,
-        "errors": 0,
+        "imported": total_imported,
+        "skipped": total_skipped,
+        "replaced": total_replaced,
+        "errors": total_errors,
         "dry_run": True,
         "actions": actions,
     }

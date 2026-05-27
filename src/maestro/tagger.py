@@ -357,7 +357,3 @@ def _write_other_tags(
     audio.save()
     logger.debug("Wrote tags to {} via generic mutagen.File", fpath)
     return True
-
-    audio.save()
-    logger.debug("Wrote tags to {} via generic mutagen.File", fpath)
-    return True

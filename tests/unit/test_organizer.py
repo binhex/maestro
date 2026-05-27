@@ -819,7 +819,7 @@ class TestImportDownloadsDryRun:
         engine,
         download_dir,
     ) -> None:
-        """Dry run must return imported=0 regardless of what would happen."""
+        """Dry run must report counts matching what would happen."""
         _seed_identified_download(engine, str(download_dir))
         session = create_session(engine)
 
@@ -832,7 +832,11 @@ class TestImportDownloadsDryRun:
             dry_run=True,
         )
 
-        assert result["imported"] == 0
+        # Two tracks would be moved to new target (no matching library tracks, no pre-existing files)
+        assert result["imported"] == 2
+        assert result["skipped"] == 0
+        assert result["replaced"] == 0
+        assert result["dry_run"] is True
 
     def test_import_downloads_dry_run_reports_replacement(
         self,

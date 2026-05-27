@@ -736,6 +736,7 @@ class TestDownloadArtworkForAlbum:
             album_dir=str(album_dir),
             artist="Test Artist",
             album="Test Album",
+            sources=["musicbrainz", "lastfm"],
             lastfm_api_key=None,
         )
 
@@ -802,6 +803,7 @@ class TestDownloadArtworkForAlbum:
             album_dir=str(album_dir),
             artist="Test Artist",
             album="Test Album",
+            sources=["musicbrainz", "lastfm"],
             lastfm_api_key="test_key_123",
         )
 
@@ -837,6 +839,7 @@ class TestDownloadArtworkForAlbum:
             album_dir=str(album_dir),
             artist="Test Artist",
             album="Test Album",
+            sources=["musicbrainz", "lastfm"],
             lastfm_api_key=None,
         )
 
@@ -923,6 +926,7 @@ class TestDownloadArtworkForAlbum:
             album_dir=str(album_dir),
             artist="Test Artist",
             album="Test Album",
+            sources=["musicbrainz", "lastfm"],
             album_art_filename="folder.jpg",
             fanart_filename="bg.jpg",
             lastfm_api_key=None,
@@ -948,11 +952,11 @@ class TestDownloadArtworkForAlbum:
         )
 
         # No Last.fm key, so that source is skipped
-        # sources defaults to ["musicbrainz", "lastfm"]
         result = download_artwork_for_album(
             album_dir=str(album_dir),
             artist="Test Artist",
             album="Test Album",
+            sources=["musicbrainz", "lastfm"],
             lastfm_api_key=None,
         )
 

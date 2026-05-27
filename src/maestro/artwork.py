@@ -223,6 +223,9 @@ def fetch_album_art_duckduckgo(
     artist: str,
     album: str,
     max_results: int = 5,
+    max_width: int = 500,
+    max_height: int = 500,
+    aspect_tolerance_percentage: int = 5,
 ) -> bytes | None:
     """Fetch album art via DuckDuckGo image search.
 
@@ -233,6 +236,9 @@ def fetch_album_art_duckduckgo(
         artist: Artist name.
         album: Album title.
         max_results: Maximum number of search results to try.
+        max_width: Maximum target width for validation.
+        max_height: Maximum target height for validation.
+        aspect_tolerance_percentage: Aspect ratio tolerance.
 
     Returns:
         Raw image bytes, or ``None`` if not found or all fail validation.
@@ -254,14 +260,24 @@ def fetch_album_art_duckduckgo(
         url = result.get("image")
         if not url:
             continue
-        processed = _try_download_and_validate(url)
+        processed = _try_download_and_validate(
+            url,
+            max_width=max_width,
+            max_height=max_height,
+            aspect_tolerance_percentage=aspect_tolerance_percentage,
+        )
         if processed is not None:
             return processed
 
     return None
 
 
-def _try_download_and_validate(url: str) -> bytes | None:
+def _try_download_and_validate(
+    url: str,
+    max_width: int = 500,
+    max_height: int = 500,
+    aspect_tolerance_percentage: int = 5,
+) -> bytes | None:
     """Download an image from *url* and validate/resize it."""
     try:
         resp = requests.get(url, timeout=15)
@@ -269,9 +285,9 @@ def _try_download_and_validate(url: str) -> bytes | None:
             return None
         return validate_and_resize_image(
             resp.content,
-            max_width=500,
-            max_height=500,
-            aspect_tolerance_percentage=5,
+            max_width=max_width,
+            max_height=max_height,
+            aspect_tolerance_percentage=aspect_tolerance_percentage,
         )
     except Exception:  # noqa: BLE001
         return None
@@ -291,7 +307,13 @@ def _fetch_album_art_from_sources(
     for source in sources:
         data: bytes | None = None
         if source == "duckduckgo":
-            data = fetch_album_art_duckduckgo(artist, album)
+            data = fetch_album_art_duckduckgo(
+                artist,
+                album,
+                max_width=max_width,
+                max_height=max_height,
+                aspect_tolerance_percentage=aspect_tolerance_percentage,
+            )
         elif source == "musicbrainz":
             data = fetch_album_art_musicbrainz(artist, album)
         elif source == "lastfm":
@@ -374,7 +396,7 @@ def download_artwork_for_album(
     fanart_path = album_path / fanart_filename
 
     if sources is None:
-        sources = ["musicbrainz", "lastfm"]
+        sources = ["duckduckgo", "musicbrainz", "lastfm"]
 
     if not download_album_art and not download_fanart:
         logger.info("Artwork downloading disabled for '{} — {}'", artist, album)
@@ -482,8 +504,10 @@ def validate_and_resize_image(
     # Resize if larger than target, maintaining aspect ratio
     if width > max_width or height > max_height:
         img.thumbnail((max_width, max_height), PilImage.LANCZOS)
+        output = io.BytesIO()
+        fmt = img.format or "JPEG"
+        img.save(output, fmt, quality=95)
+        return output.getvalue()
 
-    output = io.BytesIO()
-    fmt = img.format or "JPEG"
-    img.save(output, fmt, quality=95)
-    return output.getvalue()
+    # Image already within bounds — return original bytes unchanged
+    return data
