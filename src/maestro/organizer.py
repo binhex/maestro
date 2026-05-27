@@ -287,7 +287,6 @@ def _simulate_imports(
     }
 
 
-
 def import_downloads(
     session: Session,
     destination_root: str,
@@ -345,7 +344,13 @@ def import_downloads(
 
     if not downloads:
         logger.info("No identified downloads to import")
-        return {"imported": 0, "skipped": 0, "replaced": 0, "errors": 0, **({"dry_run": True, "actions": []} if dry_run else {})}  # noqa: E501
+        return {
+            "imported": 0,
+            "skipped": 0,
+            "replaced": 0,
+            "errors": 0,
+            **({"dry_run": True, "actions": []} if dry_run else {}),
+        }  # noqa: E501
 
     if dry_run:
         return _simulate_imports(session, downloads, dest_root, destination_pattern)

@@ -995,8 +995,10 @@ class TestExtractMp4TagsExtended:
 
     def test_non_list_atom_value(self) -> None:
         """When an atom value is a string (not list), it is converted via str()."""
+
         class MockTags:
             """Mock MP4 tags with string values instead of lists."""
+
             def __getitem__(self, key: str) -> str:
                 if key == "\xa9ART":
                     return "Artist Name"
@@ -1052,6 +1054,7 @@ class TestExtractTagsFromFileExtended:
 
         class MockId3Tags:
             """Simulates ID3-like tags with getall."""
+
             def getall(self, frame_id: str) -> list:
                 if frame_id in ("TPE1", "TALB"):
                     return [MockFrame()]

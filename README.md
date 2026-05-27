@@ -38,10 +38,10 @@ maestro --help
 | `maestro scan [roots...]` | Scan download roots, or `--library` to scan existing library |
 | `maestro identify` | Identify albums via ID3 tags or folder heuristics |
 | `maestro check` | Check download quality against library |
-| `maestro import` | Import identified albums into library |
+| `maestro import [--dry-run]` | Import identified albums into library. `--dry-run` simulates without changing files |
 | `maestro tag [--clear]` | Write or clear ID3 tags |
-| `maestro artwork` | Download album art and fanart (run `scan --library` first) |
-| `maestro daemon` | Run scheduled pipeline in foreground |
+| `maestro artwork` | Download album art and fanart (run `scan --library` first). Can be disabled via `download_album_art` / `download_fanart` config |
+| `maestro daemon [--dry-run]` | Run scheduled pipeline in foreground. `--dry-run` simulates imports without changing files |
 | `maestro config` | Display current configuration |
 
 ### Configuration
@@ -89,15 +89,20 @@ download_roots:
     type: download
     pattern: "{downloader}/{album}"
 
+dry_run: false
+
 quality:
   min_acceptable: 3
   delete_replaced: false
 
 artwork:
+  download_album_art: true
+  download_fanart: true
   album_art: cover.jpg
   fanart: fanart.jpg
   skip_if_exists: true
   sources:
+    - duckduckgo
     - musicbrainz
     - lastfm
   width: 500

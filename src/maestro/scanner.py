@@ -72,11 +72,7 @@ def _album_dir_for_file(file_path: Path) -> Path:
 
 def _create_download_snapshot(session: Session, afile: Path) -> None:
     """Create a FileSystemSnapshot for *afile* if one does not already exist."""
-    existing_snap = (
-        session.query(FileSystemSnapshot)
-        .filter(FileSystemSnapshot.path == str(afile))
-        .first()
-    )
+    existing_snap = session.query(FileSystemSnapshot).filter(FileSystemSnapshot.path == str(afile)).first()
     if existing_snap is not None:
         return
     file_stat = afile.stat()

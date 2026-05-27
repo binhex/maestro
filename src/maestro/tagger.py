@@ -225,7 +225,7 @@ def _set_id3_frames(
     """Set ID3 frames on *audio* for each non-None value."""
     import mutagen.id3  # noqa: PLC0415
 
-    frames: list[tuple[str, str | None, Any]] = [
+    frames: list[tuple[str, str | int | None, Any]] = [
         ("TPE1", artist, mutagen.id3.TPE1),
         ("TALB", album, mutagen.id3.TALB),
         ("TIT2", title, mutagen.id3.TIT2),
@@ -313,7 +313,7 @@ def _set_vorbis_dict_tags(
     genre: str | None,
 ) -> None:
     """Set VorbisComment-style tags on *tags* dict for each non-None value."""
-    entries: list[tuple[str, str | None]] = [
+    entries: list[tuple[str, str | int | None]] = [
         ("artist", artist),
         ("album", album),
         ("title", title),
