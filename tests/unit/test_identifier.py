@@ -383,7 +383,6 @@ class TestIdentifyDownloadNoTags:
         assert dl.identified_album == "JustAlbumName"
         assert dl.match_type is None
 
-
     def test_heuristic_uses_parent_dir_as_artist(
         self,
         engine: Engine,

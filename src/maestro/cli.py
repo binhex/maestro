@@ -288,7 +288,9 @@ def cli(
             return
 
         has_cli_paths = bool(download_path or library_path)
-        has_config_roots = bool([r for r in config.download_roots if r.enabled] or [r for r in config.library_roots if r.enabled])
+        has_config_roots = bool(
+            [r for r in config.download_roots if r.enabled] or [r for r in config.library_roots if r.enabled]
+        )
 
         if has_cli_paths or has_config_roots:
             from maestro.logger import create_logger
