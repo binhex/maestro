@@ -31,6 +31,11 @@ class TestGetQualityTier:
     def test_mp3_128_tier(self):
         assert get_quality_tier("MP3", 128) == 1
 
+    def test_mp3_low_bitrate_falls_through(self):
+        """MP3 with bitrate below all thresholds returns tier 1."""
+        assert get_quality_tier("MP3", 96) == 1
+        assert get_quality_tier("MP3", 64) == 1
+
     def test_aac_tier(self):
         assert get_quality_tier("M4A", 256) == 2
 
