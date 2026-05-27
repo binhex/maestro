@@ -185,6 +185,50 @@ class TestScannerSkipsExistingOnRescan:
         assert count == 1
 
 
+class TestScannerRootNotDir:
+    """scan_download_root with a non-directory path."""
+
+    @pytest.fixture
+    def engine(self, tmp_path: Path) -> Engine:  # type: ignore[misc]
+        db_path = str(tmp_path / "test.db")
+        eng = get_engine(db_path, echo=False)
+        init_db(eng)
+        yield eng
+        eng.dispose()
+
+    def test_scan_download_root_not_dir(self, engine: Engine, tmp_path: Path) -> None:
+        """Scanning a non-existent path returns an empty result."""
+        root = tmp_path / "does_not_exist"
+        session = create_session(engine)
+        result = scan_download_root(session, root)
+        session.close()
+        assert result == {"created": 0, "skipped": 0, "removed": 0}
+
+
+class TestScannerAudioFileInRoot:
+    """Audio files placed directly in the download root are skipped."""
+
+    @pytest.fixture
+    def engine(self, tmp_path: Path) -> Engine:  # type: ignore[misc]
+        db_path = str(tmp_path / "test.db")
+        eng = get_engine(db_path, echo=False)
+        init_db(eng)
+        yield eng
+        eng.dispose()
+
+    def test_audio_file_in_root_skipped(self, engine: Engine, tmp_path: Path) -> None:
+        """Audio files directly in the download root are skipped."""
+        root = tmp_path / "flat_audio"
+        root.mkdir()
+        (root / "track.flac").write_bytes(b"data")
+
+        session = create_session(engine)
+        result = scan_download_root(session, root)
+        session.close()
+
+        assert result["created"] == 0
+
+
 class TestScannerDetectsCdSubdirectories:
     """CD subdirectories are collapsed into a single album directory."""
 
@@ -358,3 +402,83 @@ class TestScanLibraryRoot:
 
         assert result["tracks"] == 1
         session.close()
+
+    def test_scan_library_root_shallow_structure(self, engine: Engine, tmp_path: Path) -> None:
+        """When artist_dir == root, files are attributed to 'Unknown Artist'."""
+        from maestro.db.models import Artist
+        from maestro.scanner import scan_library_root
+
+        lib_root = tmp_path / "Shallow"
+        album_dir = lib_root / "Random Album"
+        album_dir.mkdir(parents=True)
+        (album_dir / "track.flac").write_bytes(b"data")
+
+        session = create_session(engine)
+        result = scan_library_root(session, lib_root)
+        session.commit()
+        session.close()
+
+        assert result["artists"] == 1
+        assert result["albums"] == 1
+        assert result["tracks"] == 1
+
+        session2 = create_session(engine)
+        artist = session2.query(Artist).first()
+        session2.close()
+        assert artist is not None
+        assert artist.name == "Unknown Artist"
+
+    def test_scan_library_root_not_dir(self, engine: Engine, tmp_path: Path) -> None:
+        """scan_library_root with a non-existent path returns empty counts."""
+        from maestro.scanner import scan_library_root
+
+        session = create_session(engine)
+        result = scan_library_root(session, tmp_path / "nonexistent")
+        session.close()
+
+        assert result == {"artists": 0, "albums": 0, "tracks": 0}
+
+    def test_scan_library_root_no_audio(self, engine: Engine, tmp_path: Path) -> None:
+        """scan_library_root with no audio files returns empty counts."""
+        from maestro.scanner import scan_library_root
+
+        lib_root = tmp_path / "EmptyMusic"
+        lib_root.mkdir()
+        (lib_root / "notes.txt").write_text("not audio")
+
+        session = create_session(engine)
+        result = scan_library_root(session, lib_root)
+        session.close()
+
+        assert result == {"artists": 0, "albums": 0, "tracks": 0}
+
+    def test_scan_library_root_progress_commit(self, engine: Engine, tmp_path: Path) -> None:
+        """scan_library_root commits and logs progress every 100 files."""
+        from unittest.mock import patch
+
+        from maestro.scanner import scan_library_root
+
+        lib_root = tmp_path / "BigMusic"
+        # Create 150 audio files distributed across 3 artists
+        for i in range(3):
+            artist_dir = lib_root / f"Artist{i}" / "Album"
+            artist_dir.mkdir(parents=True)
+            for j in range(50):
+                (artist_dir / f"track{j:02d}.flac").write_bytes(b"data")
+
+        session = create_session(engine)
+        with patch("maestro.scanner.logger") as mock_logger:
+            result = scan_library_root(session, lib_root)
+            session.commit()
+        session.close()
+
+        assert result["tracks"] == 150
+        assert result["artists"] == 3
+        assert result["albums"] == 3
+
+        # Check that progress was logged at least once
+        progress_calls = [
+            call for call in mock_logger.info.call_args_list
+            if "Scanned " in str(call)
+        ]
+        assert len(progress_calls) >= 1

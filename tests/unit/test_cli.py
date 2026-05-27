@@ -158,6 +158,17 @@ class TestScan:
             assert mock_lib_scan.call_count == 2
             assert "Library scan complete" in result.output
 
+    def test_scan_library_no_roots(self) -> None:
+        """Scan --library with no enabled library roots should show message."""
+        mock_config = Mock()
+        mock_config.library_roots = []
+        mock_setup = Mock(return_value=(mock_config, Mock(), Mock()))
+
+        with patch("maestro.cli._setup", mock_setup):
+            result = self.runner.invoke(cli, ["scan", "--library"])
+            assert result.exit_code == 0
+            assert "No library roots to scan" in result.output
+
 
 class TestIdentify:
     """Tests for the ``identify`` subcommand."""
@@ -202,6 +213,42 @@ class TestCheck:
             assert "Maestro Library Status" in result.output
             assert "Artists:" in result.output
             assert mock_session.close.called
+
+    def test_check_shows_quality_tiers(self) -> None:
+        """Check should display quality tiers when tracks exist in the DB."""
+        mock_track_flac = Mock()
+        mock_track_flac.format = "FLAC"
+        mock_track_flac.bitrate = None
+
+        mock_track_mp3 = Mock()
+        mock_track_mp3.format = "MP3"
+        mock_track_mp3.bitrate = 320
+
+        mock_session = Mock()
+
+        def query_side_effect(model: object) -> Mock:
+            q = Mock()
+            q.count.return_value = 0
+            filter_mock = Mock()
+            filter_mock.count.return_value = 0
+            q.filter.return_value = filter_mock
+
+            name = model.__name__  # type: ignore[attr-defined]
+            if name == "Track":
+                q.count.return_value = 2
+                q.all.return_value = [mock_track_flac, mock_track_mp3]
+
+            return q
+
+        mock_session.query.side_effect = query_side_effect
+
+        mock_setup = Mock(return_value=(Mock(), Mock(), mock_session))
+
+        with patch("maestro.cli._setup", mock_setup):
+            result = self.runner.invoke(cli, ["check"])
+            assert result.exit_code == 0
+            assert "Quality tiers" in result.output
+            assert "Tier 10" in result.output  # FLAC tier
 
 
 class TestImport:
@@ -264,6 +311,46 @@ class TestImport:
             mock_import_dl.assert_called_once()
             assert mock_session.close.called
 
+    def test_import_dry_run_shows_actions(self) -> None:
+        """Import --dry-run should display action lines for each operation."""
+        mock_lib_root = Mock()
+        mock_lib_root.enabled = True
+        mock_lib_root.path = "/music/library"
+        mock_lib_root.destination_pattern = None
+
+        mock_config = Mock()
+        mock_config.download_roots = [
+            Mock(enabled=True, path="/downloads", pattern=None),
+        ]
+        mock_config.dry_run = False
+        mock_config.library_roots = [mock_lib_root]
+        mock_config.quality.delete_replaced = False
+
+        mock_session = Mock()
+        mock_setup = Mock(return_value=(mock_config, Mock(), mock_session))
+
+        mock_import = Mock(
+            return_value={
+                "imported": 2,
+                "skipped": 0,
+                "replaced": 0,
+                "errors": 0,
+                "actions": ["  /src/track.flac -> /dst/track.flac"],
+            },
+        )
+
+        with (
+            patch("maestro.cli._setup", mock_setup),
+            patch("maestro.organizer.import_downloads", mock_import),
+            patch("maestro.identifier.identify_downloads"),
+            patch("maestro.scanner.scan_download_root"),
+        ):
+            result = self.runner.invoke(cli, ["import", "--dry-run"])
+            assert result.exit_code == 0
+            assert "DRY RUN" in result.output
+            assert "/src/track.flac" in result.output
+            assert "would import=2" in result.output
+
 
 class TestTag:
     """Tests for the ``tag`` subcommand."""
@@ -301,6 +388,33 @@ class TestTag:
             assert result.exit_code == 0
             assert "Clearing tags" in result.output
             mock_clear.assert_called_once_with("/music/track.flac")
+
+    def test_tag_writes_tags(self) -> None:
+        """Tag without --clear should call write_tags for each track."""
+        mock_track = Mock()
+        mock_track.file_path = "/music/track.flac"
+        mock_track.album = Mock()
+        mock_track.album.artist = Mock()
+        mock_track.album.artist.name = "Test Artist"
+        mock_track.album.title = "Test Album"
+        mock_track.album.year = 2024
+        mock_track.album.genre = "Rock"
+        mock_track.title = "Test Track"
+        mock_track.track_number = 1
+
+        mock_session = Mock()
+        mock_session.query.return_value.all.return_value = [mock_track]
+        mock_setup = Mock(return_value=(Mock(), Mock(), mock_session))
+
+        with (
+            patch("maestro.cli._setup", mock_setup),
+            patch("maestro.tagger.write_tags", return_value=True) as mock_write,
+        ):
+            result = self.runner.invoke(cli, ["tag"])
+            assert result.exit_code == 0
+            assert "Writing tags" in result.output
+            assert "Tagged" in result.output
+            mock_write.assert_called_once()
 
 
 class TestArtwork:
@@ -479,6 +593,23 @@ class TestDaemon:
             mock_daemon_instance.run.assert_called_once()
             assert mock_session.close.called
 
+    def test_daemon_dry_run_flag(self) -> None:
+        """Daemon --dry-run should set config.dry_run = True."""
+        mock_config = Mock()
+        mock_config.dry_run = False
+        mock_session = Mock()
+        mock_setup = Mock(return_value=(mock_config, Mock(), mock_session))
+        mock_daemon_instance = Mock()
+        mock_daemon_class = Mock(return_value=mock_daemon_instance)
+
+        with (
+            patch("maestro.cli._setup", mock_setup),
+            patch("maestro.daemon.Daemon", mock_daemon_class),
+        ):
+            result = self.runner.invoke(cli, ["daemon", "--dry-run"])
+            assert result.exit_code == 0
+            assert mock_config.dry_run is True
+
 
 class TestShowConfig:
     """Tests for the ``config`` subcommand."""
@@ -513,6 +644,44 @@ class TestShowConfig:
             assert "Download roots: 0" in result.output
             assert "cover.jpg" in result.output
             assert mock_session.close.called
+
+    def test_config_with_roots(self) -> None:
+        """Config display should show library and download root details."""
+        mock_lib_root = Mock()
+        mock_lib_root.path = "/music/lib"
+        mock_lib_root.enabled = True
+
+        mock_dl_root = Mock()
+        mock_dl_root.path = "/downloads/new"
+        mock_dl_root.enabled = False
+
+        mock_config = Mock()
+        mock_config.library_roots = [mock_lib_root]
+        mock_config.download_roots = [mock_dl_root]
+        mock_config.quality.min_acceptable = 3
+        mock_config.quality.delete_replaced = False
+        mock_config.artwork.album_art = "cover.jpg"
+        mock_config.artwork.fanart = "fanart.jpg"
+        mock_config.artwork.skip_if_exists = True
+        mock_config.artwork.sources = ["musicbrainz"]
+        mock_config.artwork.download_album_art = True
+        mock_config.artwork.download_fanart = True
+        mock_config.dry_run = False
+        mock_config.scheduler.schedule = "0 3 * * *"
+        mock_config.scheduler.run_on_start = True
+        mock_config.scheduler.retry_failed = True
+        mock_config.scheduler.max_retries = 3
+
+        mock_session = Mock()
+        mock_setup = Mock(return_value=(mock_config, Mock(), mock_session))
+
+        with patch("maestro.cli._setup", mock_setup):
+            result = self.runner.invoke(cli, ["config"])
+            assert result.exit_code == 0
+            assert "/music/lib" in result.output
+            assert "/downloads/new" in result.output
+            assert "enabled=True" in result.output
+            assert "enabled=False" in result.output
 
 
 class TestLastfmApiKey:
@@ -586,6 +755,48 @@ class TestCliArtworkDisabled:
 
     def setup_method(self) -> None:
         self.runner = CliRunner()
+
+    def test_process_artwork_album_no_artist(self) -> None:
+        """_process_artwork_album should return early when album has no artist."""
+        from maestro.cli import _process_artwork_album
+
+        album = Mock()
+        album.artist = None
+        album.title = "Some Album"
+
+        config = Mock()
+
+        result = _process_artwork_album(album, config, None, None)
+        assert result is None
+
+    def test_artwork_no_tracks_in_database(self) -> None:
+        """Artwork should skip albums with no tracks in database."""
+        mock_artist = Mock()
+        mock_artist.name = "Test Artist"
+
+        mock_album = Mock()
+        mock_album.artist = mock_artist
+        mock_album.title = "Test Album"
+        mock_album.tracks = []  # No tracks
+
+        mock_session = Mock()
+        mock_session.query.return_value.join.return_value.all.return_value = [
+            mock_album,
+        ]
+
+        mock_config = Mock()
+        mock_config.artwork.download_album_art = True
+        mock_config.artwork.download_fanart = True
+        mock_config.artwork.album_art = "cover.jpg"
+        mock_config.artwork.fanart = "fanart.jpg"
+        mock_config.artwork.sources = ["musicbrainz"]
+
+        mock_setup = Mock(return_value=(mock_config, Mock(), mock_session))
+
+        with patch("maestro.cli._setup", mock_setup):
+            result = self.runner.invoke(cli, ["artwork"])
+            assert result.exit_code == 0
+            assert "no tracks in database" in result.output
 
     def test_artwork_early_exit_when_both_disabled(self) -> None:
         """When both download_album_art and download_fanart are False, artwork command should exit early."""
