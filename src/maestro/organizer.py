@@ -154,6 +154,118 @@ def _is_audio_file(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _simulate_quality_skip(
+    session: Session,
+    download: Download,
+    audio_files: list[Path],
+) -> bool:
+    """Check if all audio files should be skipped due to equal/better quality in library.
+
+    Returns True if the entire album should be skipped.
+    """
+    if download.identified_album_id is None:
+        return False
+
+    existing_album = session.get(Album, download.identified_album_id)
+    if not existing_album or not existing_album.tracks:
+        return False
+
+    skip_count = 0
+    for afile in audio_files:
+        track_key = afile.stem.lower()
+        if _check_file_should_skip(existing_album.tracks, afile, track_key):
+            skip_count += 1
+    return skip_count == len(audio_files)
+
+
+def _check_file_should_skip(
+    tracks: list[Track],
+    afile: Path,
+    track_key: str,
+) -> bool:
+    """Check if a single audio file matches a track that should be skipped."""
+    for t in tracks:
+        if not t.file_path or not t.format:
+            continue
+        if Path(t.file_path).stem.lower() != track_key:
+            continue
+        decision = compare_tracks(
+            (t.format, t.bitrate),
+            (afile.suffix.lstrip(".").upper(), None),
+        )
+        if decision == "skip":
+            return True
+        break  # first matching track with format determines the result
+    return False
+
+
+def _dry_run_actions_for_files(
+    audio_files: list[Path],
+    artist_name: str,
+    album_title: str,
+    year: int | None,
+    genre: str | None,
+    dest_root: Path,
+    destination_pattern: str,
+) -> list[str]:
+    """Generate dry-run action strings for a list of audio files."""
+    actions: list[str] = []
+    for afile in audio_files:
+        stem = _fs_safe(afile.stem)
+        ext = afile.suffix.lstrip(".")
+        variables: dict[str, str] = {
+            "artist": artist_name or "",
+            "album": album_title or "",
+            "filename": stem,
+            "ext": ext,
+            "year": str(year) if year else "",
+            "genre": genre or "",
+        }
+        relative_path = render_path(variables, destination_pattern)
+        full_target = (dest_root / relative_path).resolve()
+        if full_target.exists():
+            actions.append(f"Would replace: {afile} \u2192 {full_target}")
+        else:
+            actions.append(f"Would move: {afile} \u2192 {full_target}")
+    return actions
+
+
+def _list_audio_files(directory: Path) -> list[Path]:
+    """Return sorted list of audio files in a directory."""
+    return sorted(f for f in directory.iterdir() if f.is_file() and _is_audio_file(f))
+
+
+def _process_dl_simulate(
+    dl: Download,
+    dest_root: Path,
+    destination_pattern: str,
+    session: Session,
+) -> list[str]:
+    """Process a single download in dry-run mode."""
+    source = Path(dl.source_path)
+    if not source.is_dir():
+        return [f"Would skip: {source} (source directory missing)"]
+
+    artist_name = dl.identified_artist or "Unknown Artist"
+    album_title = dl.identified_album or source.name
+    audio_files = _list_audio_files(source)
+    if not audio_files:
+        return [f"Would skip: {source} (no audio files)"]
+
+    if _simulate_quality_skip(session, dl, audio_files):
+        return [f"Would skip: {source.name} (all tracks equal/better quality in library)"]
+
+    return _dry_run_actions_for_files(
+        audio_files,
+        artist_name,
+        album_title,
+        dl.identified_year,
+        dl.identified_genre,
+        dest_root,
+        destination_pattern,
+    )
+
+
 def _simulate_imports(
     session: Session,
     downloads: list[Download],
@@ -163,54 +275,7 @@ def _simulate_imports(
     """Simulate imports for dry-run mode, returning action descriptions."""
     actions: list[str] = []
     for dl in downloads:
-        source = Path(dl.source_path)
-        if not source.is_dir():
-            actions.append(f"Would skip: {source} (source directory missing)")
-            continue
-
-        artist_name = dl.identified_artist or "Unknown Artist"
-        album_title = dl.identified_album or source.name
-        audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
-        if not audio_files:
-            actions.append(f"Would skip: {source} (no audio files)")
-            continue
-
-        if dl.identified_album_id is not None:
-            existing_album = session.get(Album, dl.identified_album_id)
-            if existing_album and existing_album.tracks:
-                skip_count = 0
-                for afile in audio_files:
-                    track_key = afile.stem.lower()
-                    for t in existing_album.tracks:
-                        if t.file_path and Path(t.file_path).stem.lower() == track_key and t.format:
-                            decision = compare_tracks(
-                                (t.format, t.bitrate),
-                                (afile.suffix.lstrip(".").upper(), None),
-                            )
-                            if decision == "skip":
-                                skip_count += 1
-                                break
-                if skip_count == len(audio_files):
-                    actions.append(f"Would skip: {source.name} (all tracks equal/better quality in library)")
-                    continue
-
-        for afile in audio_files:
-            stem = _fs_safe(afile.stem)
-            ext = afile.suffix.lstrip(".")
-            variables: dict[str, str] = {
-                "artist": artist_name or "",
-                "album": album_title or "",
-                "filename": stem,
-                "ext": ext,
-                "year": str(dl.identified_year) if dl.identified_year else "",
-                "genre": dl.identified_genre or "",
-            }
-            relative_path = render_path(variables, destination_pattern)
-            full_target = (dest_root / relative_path).resolve()
-            if full_target.exists():
-                actions.append(f"Would replace: {afile} → {full_target}")
-            else:
-                actions.append(f"Would move: {afile} → {full_target}")
+        actions.extend(_process_dl_simulate(dl, dest_root, destination_pattern, session))
 
     return {
         "imported": 0,
@@ -220,6 +285,7 @@ def _simulate_imports(
         "dry_run": True,
         "actions": actions,
     }
+
 
 
 def import_downloads(
@@ -417,7 +483,7 @@ def _process_download(
         source,
     )
 
-    audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
+    audio_files = _list_audio_files(source)
     if not audio_files:
         logger.warning("No audio files found in {}", source)
         download.status = "error"
@@ -445,6 +511,54 @@ def _process_download(
     logger.info("Imported download id={} from {}", download.id, source)
 
 
+def _ensure_target_within_root(full_target: Path, dest_root: Path) -> bool:
+    """Return True if *full_target* is within *dest_root*."""
+    try:
+        full_target.relative_to(dest_root)
+        return True
+    except ValueError:
+        return False
+
+
+def _handle_target_replacement(
+    full_target: Path,
+    dest_root: Path,
+    relative_path: str,
+    delete_replaced: bool,
+    counts: dict[str, Any],
+) -> None:
+    """Move an existing target to _replaced/ or delete it."""
+    counts["replaced"] = counts.get("replaced", 0) + 1
+    if delete_replaced:
+        full_target.unlink()
+        logger.debug("Deleted existing file: {}", full_target)
+    else:
+        replaced_dir = dest_root / _REPLACED_DIR
+        replaced_target = replaced_dir / relative_path
+        replaced_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(full_target), str(replaced_target))
+        logger.debug("Moved existing file to {}", replaced_target)
+
+
+def _build_target_variables(
+    stem: str,
+    ext: str,
+    artist_name: str,
+    album_title: str,
+    year: int | None,
+    genre: str | None,
+) -> dict[str, str]:
+    """Build the template variables dict for rendering a target path."""
+    return {
+        "artist": artist_name if artist_name else "",
+        "album": album_title if album_title else "",
+        "filename": stem,
+        "ext": ext,
+        "year": str(year) if year is not None else "",
+        "genre": genre if genre else "",
+    }
+
+
 def _import_file(
     session: Session,
     source_file: Path,
@@ -463,57 +577,30 @@ def _import_file(
 
     This function tracks replaced counts via *counts*.
     """
-    stem = source_file.stem
-    stem = _fs_safe(stem)
+    stem = _fs_safe(source_file.stem)
     ext = source_file.suffix.lstrip(".")
 
-    variables: dict[str, str] = {
-        "artist": artist_name or "",
-        "album": album_title or "",
-        "filename": stem,
-        "ext": ext,
-        "year": str(year) if year is not None else "",
-        "genre": genre or "",
-    }
-
+    variables = _build_target_variables(stem, ext, artist_name, album_title, year, genre)
     relative_path = render_path(variables, pattern)
     full_target = (dest_root / relative_path).resolve()
 
-    # Ensure the full_target is within dest_root (path traversal check)
-    try:
-        full_target.relative_to(dest_root)
-    except ValueError:
+    if not _ensure_target_within_root(full_target, dest_root):
         logger.warning("Rendered path escapes destination root: {}", full_target)
         return
 
-    # Create parent directories
     full_target.parent.mkdir(parents=True, exist_ok=True)
 
-    # Handle replacement if target already exists
     if full_target.exists():
-        counts["replaced"] = counts.get("replaced", 0) + 1
-        if delete_replaced:
-            full_target.unlink()
-            logger.debug("Deleted existing file: {}", full_target)
-        else:
-            # Move to _replaced/ mirroring the same relative sub-path
-            replaced_dir = dest_root / _REPLACED_DIR
-            replaced_target = replaced_dir / relative_path
-            replaced_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(full_target), str(replaced_target))
-            logger.debug("Moved existing file to {}", replaced_target)
+        _handle_target_replacement(full_target, dest_root, relative_path, delete_replaced, counts)
 
-    # Move or copy the new file
     if move:
         shutil.move(str(source_file), str(full_target))
     else:
         shutil.copy2(str(source_file), str(full_target))
 
-    # Get file stats after the move/copy
     file_stat = full_target.stat()
     file_hash = _get_file_hash(full_target)
 
-    # Create Track record
     track = Track(
         album_id=album.id,
         title=stem,

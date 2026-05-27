@@ -89,6 +89,22 @@ def _create_download_snapshot(session: Session, afile: Path) -> None:
     session.add(snapshot)
 
 
+def _gather_album_files(root: Path) -> dict[Path, list[Path]]:
+    """Walk *root* and return audio files grouped by album directory.
+
+    Skips files whose album directory is the root itself.
+    """
+    album_files: dict[Path, list[Path]] = {}
+    for fpath in root.rglob("*"):
+        if not fpath.is_file() or not _is_audio_file(fpath):
+            continue
+        album_dir = _album_dir_for_file(fpath)
+        if album_dir == root:
+            continue
+        album_files.setdefault(album_dir, []).append(fpath)
+    return album_files
+
+
 def scan_download_root(
     session: Session,
     root_path: str | Path,
@@ -122,15 +138,10 @@ def scan_download_root(
     if not root.is_dir():
         return {"created": 0, "skipped": 0, "removed": 0}
 
-    # Gather all audio files, grouped by album directory
-    album_files: dict[Path, list[Path]] = {}
-    for fpath in root.rglob("*"):
-        if not fpath.is_file() or not _is_audio_file(fpath):
-            continue
-        album_dir = _album_dir_for_file(fpath)
-        if album_dir == root:
-            continue
-        album_files.setdefault(album_dir, []).append(fpath)
+    album_files = _gather_album_files(root)
+    if not album_files:
+        session.commit()
+        return {"created": 0, "skipped": 0, "removed": 0}
 
     created = 0
     skipped = 0

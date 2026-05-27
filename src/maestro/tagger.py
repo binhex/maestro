@@ -213,6 +213,32 @@ def _clear_audio_tags(fpath: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _set_id3_frames(
+    audio: Any,
+    artist: str | None,
+    album: str | None,
+    title: str | None,
+    track_number: int | None,
+    year: int | None,
+    genre: str | None,
+) -> None:
+    """Set ID3 frames on *audio* for each non-None value."""
+    import mutagen.id3  # noqa: PLC0415
+
+    frames: list[tuple[str, str | None, Any]] = [
+        ("TPE1", artist, mutagen.id3.TPE1),
+        ("TALB", album, mutagen.id3.TALB),
+        ("TIT2", title, mutagen.id3.TIT2),
+        ("TRCK", track_number, mutagen.id3.TRCK),
+        ("TDRC", year, mutagen.id3.TDRC),
+        ("TCON", genre, mutagen.id3.TCON),
+    ]
+    for frame_id, val, cls in frames:
+        if val is not None:
+            text = str(val) if isinstance(val, int) else val
+            audio[frame_id] = cls(encoding=3, text=text)
+
+
 def _write_mp3_tags(
     fpath: Path,
     artist: str | None,
@@ -231,18 +257,7 @@ def _write_mp3_tags(
     except mutagen.id3.ID3NoHeaderError:
         audio = mutagen.id3.ID3()
 
-    if artist is not None:
-        audio["TPE1"] = mutagen.id3.TPE1(encoding=3, text=artist)
-    if album is not None:
-        audio["TALB"] = mutagen.id3.TALB(encoding=3, text=album)
-    if title is not None:
-        audio["TIT2"] = mutagen.id3.TIT2(encoding=3, text=title)
-    if track_number is not None:
-        audio["TRCK"] = mutagen.id3.TRCK(encoding=3, text=str(track_number))
-    if year is not None:
-        audio["TDRC"] = mutagen.id3.TDRC(encoding=3, text=str(year))
-    if genre is not None:
-        audio["TCON"] = mutagen.id3.TCON(encoding=3, text=genre)
+    _set_id3_frames(audio, artist, album, title, track_number, year, genre)
 
     if artwork_path is not None:
         embed_artwork_id3(audio, artwork_path)
@@ -288,6 +303,29 @@ def _write_flac_tags(
     return True
 
 
+def _set_vorbis_dict_tags(
+    tags: dict,
+    artist: str | None,
+    album: str | None,
+    title: str | None,
+    track_number: int | None,
+    year: int | None,
+    genre: str | None,
+) -> None:
+    """Set VorbisComment-style tags on *tags* dict for each non-None value."""
+    entries: list[tuple[str, str | None]] = [
+        ("artist", artist),
+        ("album", album),
+        ("title", title),
+        ("tracknumber", track_number),
+        ("date", year),
+        ("genre", genre),
+    ]
+    for key, val in entries:
+        if val is not None:
+            tags[key] = [str(val)]
+
+
 def _write_other_tags(
     fpath: Path,
     artist: str | None,
@@ -313,20 +351,12 @@ def _write_other_tags(
 
     tags = getattr(audio, "tags", None)
 
-    # VorbisComment-like tags (dict of lists)
     if isinstance(tags, dict):
-        if artist is not None:
-            tags["artist"] = [artist]
-        if album is not None:
-            tags["album"] = [album]
-        if title is not None:
-            tags["title"] = [title]
-        if track_number is not None:
-            tags["tracknumber"] = [str(track_number)]
-        if year is not None:
-            tags["date"] = [str(year)]
-        if genre is not None:
-            tags["genre"] = [genre]
+        _set_vorbis_dict_tags(tags, artist, album, title, track_number, year, genre)
+
+    audio.save()
+    logger.debug("Wrote tags to {} via generic mutagen.File", fpath)
+    return True
 
     audio.save()
     logger.debug("Wrote tags to {} via generic mutagen.File", fpath)

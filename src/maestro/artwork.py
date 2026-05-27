@@ -254,22 +254,27 @@ def fetch_album_art_duckduckgo(
         url = result.get("image")
         if not url:
             continue
-        try:
-            resp = requests.get(url, timeout=15)
-            if resp.status_code != 200:
-                continue
-            processed = validate_and_resize_image(
-                resp.content,
-                max_width=500,
-                max_height=500,
-                aspect_tolerance_percentage=5,
-            )
-            if processed is not None:
-                return processed
-        except Exception:  # noqa: BLE001
-            continue
+        processed = _try_download_and_validate(url)
+        if processed is not None:
+            return processed
 
     return None
+
+
+def _try_download_and_validate(url: str) -> bytes | None:
+    """Download an image from *url* and validate/resize it."""
+    try:
+        resp = requests.get(url, timeout=15)
+        if resp.status_code != 200:
+            return None
+        return validate_and_resize_image(
+            resp.content,
+            max_width=500,
+            max_height=500,
+            aspect_tolerance_percentage=5,
+        )
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _fetch_album_art_from_sources(
@@ -475,13 +480,8 @@ def validate_and_resize_image(
         return None
 
     # Resize if larger than target, maintaining aspect ratio
-    resized = False
     if width > max_width or height > max_height:
         img.thumbnail((max_width, max_height), PilImage.LANCZOS)
-        resized = True
-
-    if not resized:
-        return data
 
     output = io.BytesIO()
     fmt = img.format or "JPEG"

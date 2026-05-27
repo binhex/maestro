@@ -431,7 +431,9 @@ class TestDaemonHelpers:
         assert pid > 0
 
     def test_run_pipeline_once_creates_session_and_runs(
-        self, mocker, tmp_path,
+        self,
+        mocker,
+        tmp_path,
     ) -> None:
         """_run_pipeline_once creates a session, runs pipeline, and commits."""
         from maestro.db.core import get_engine, init_db
@@ -450,7 +452,9 @@ class TestDaemonHelpers:
         mock_run.assert_called_once()
 
     def test_run_pipeline_once_rollback_on_error(
-        self, mocker, tmp_path,
+        self,
+        mocker,
+        tmp_path,
     ) -> None:
         """_run_pipeline_once rolls back when pipeline raises."""
         from maestro.db.core import get_engine, init_db
@@ -470,7 +474,9 @@ class TestDaemonHelpers:
         mock_run.assert_called_once()
 
     def test_run_pipeline_once_no_session_leak(
-        self, mocker, tmp_path,
+        self,
+        mocker,
+        tmp_path,
     ) -> None:
         """_run_pipeline_once always closes the session."""
         from maestro.db.core import get_engine, init_db

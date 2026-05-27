@@ -224,6 +224,20 @@ def _extract_other_tags(audio: Any, fpath: Path) -> dict[str, Any] | None:
     return _extract_mp4_tags(tags)
 
 
+def _get_mp4_atom_value(tags: Any, atoms: list[str]) -> str | None:
+    """Look up an MP4 atom value from the *atoms* list, returning the first match."""
+    for atom in atoms:
+        try:
+            val = tags[atom]
+            if val:
+                if isinstance(val, list):
+                    return str(val[0])
+                return str(val)
+        except (KeyError, TypeError, IndexError):
+            continue
+    return None
+
+
 def _extract_mp4_tags(tags: Any) -> dict[str, Any] | None:
     """Extract tags from an MP4/M4A file."""
     if not hasattr(tags, "__getitem__"):
@@ -238,17 +252,9 @@ def _extract_mp4_tags(tags: Any) -> dict[str, Any] | None:
     }
     result: dict[str, Any] = {}
     for key, atoms in atoms_map.items():
-        for atom in atoms:
-            try:
-                val = tags[atom]
-                if val:
-                    if isinstance(val, list):
-                        result[key] = str(val[0])
-                    else:
-                        result[key] = str(val)
-                    break
-            except (KeyError, TypeError, IndexError):
-                continue
+        val = _get_mp4_atom_value(tags, atoms)
+        if val is not None:
+            result[key] = val
     return result if result.get("artist") or result.get("album") else None
 
 
@@ -306,10 +312,9 @@ def _match_to_library(
     )
     if album is None:
         return None
-    if year is not None and album.year is None:
-        album.year = year
-    if genre is not None and album.genre is None:
-        album.genre = genre
+    for attr, val in [("year", year), ("genre", genre)]:
+        if val is not None and getattr(album, attr) is None:
+            setattr(album, attr, val)
     return album.id
 
 

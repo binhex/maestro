@@ -553,6 +553,86 @@ class TestFetchAlbumArtDuckDuckGo:
         result = fetch_album_art_duckduckgo("Test", "Album")
         assert result is not None
 
+    def test_returns_none_when_ddgs_exception(self, mocker) -> None:
+        """When DDGS raises an exception, None is returned."""
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.side_effect = RuntimeError("search failed")
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        result = fetch_album_art_duckduckgo("Test", "Album")
+        assert result is None
+
+    def test_skips_results_without_url(self, mocker) -> None:
+        """Results missing an 'image' key are skipped."""
+        import io
+
+        from PIL import Image
+
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        img = Image.new("RGB", (500, 500), color="red")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=95)
+        valid_image = buf.getvalue()
+
+        mock_results = [
+            {"image": None},  # no URL — should be skipped
+            {"image": "https://example.com/valid.jpg"},
+        ]
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = mock_results
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = valid_image
+        mocker.patch("maestro.artwork.requests.get", return_value=mock_response)
+
+        result = fetch_album_art_duckduckgo("Test", "Album")
+        assert result is not None
+
+    def test_skips_on_download_exception(self, mocker) -> None:
+        """When downloading an image raises an exception, next URL is tried."""
+        import io
+
+        from PIL import Image
+
+        from maestro.artwork import fetch_album_art_duckduckgo
+
+        img = Image.new("RGB", (500, 500), color="red")
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=95)
+        valid_image = buf.getvalue()
+
+        mock_results = [
+            {"image": "https://example.com/broken.jpg"},
+            {"image": "https://example.com/valid.jpg"},
+        ]
+        mock_ddgs = mocker.MagicMock()
+        mock_ddgs.__enter__.return_value.images.return_value = mock_results
+        mocker.patch("maestro.artwork.DDGS", return_value=mock_ddgs)
+
+        mock_fail = mocker.MagicMock()
+        mock_fail.status_code = 200
+        mock_fail.content = b"garbage"
+        # Make validate_and_resize_image raise an exception
+        # Actually, let the request fail with an exception
+
+        mock_success = mocker.MagicMock()
+        mock_success.status_code = 200
+        mock_success.content = valid_image
+
+        # First request raises, second succeeds
+        mocker.patch(
+            "maestro.artwork.requests.get",
+            side_effect=[ConnectionError("connection failed"), mock_success],
+        )
+
+        result = fetch_album_art_duckduckgo("Test", "Album")
+        assert result is not None
+
 
 # ===================================================================
 # download_artwork_for_album
