@@ -1059,13 +1059,15 @@ class TestDownloadArtworkForAlbumDisable:
         assert result["source_used"] is None
 
     def test_download_artwork_duckduckgo_source_skipped_when_missing(
-        self, tmp_path, mocker,
+        self,
+        tmp_path,
+        mocker,
     ) -> None:
         """When DDGS is not available and duckduckgo is a source, it's skipped gracefully."""
         import maestro.artwork as art_mod
 
         original = art_mod.DDGS
-        art_mod.DDGS = None
+        art_mod.DDGS = None  # type: ignore[misc,assignment]
         try:
             album_dir = tmp_path / "artist" / "album"
             album_dir.mkdir(parents=True)
@@ -1082,4 +1084,4 @@ class TestDownloadArtworkForAlbumDisable:
             assert isinstance(result, dict)
             assert "album_art" in result
         finally:
-            art_mod.DDGS = original
+            art_mod.DDGS = original  # type: ignore[misc,assignment]
