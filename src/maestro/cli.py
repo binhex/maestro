@@ -47,7 +47,7 @@ def _lastfm_api_key(config: Config) -> str | None:
     return os.environ.get("LASTFM_API_KEY")
 
 
-def _run_pipeline_inline(config: Config, dry_run: bool) -> None:
+def _run_pipeline_inline(config: Config, dry_run: bool, db_path: str | None = None) -> None:
     """Run the full pipeline (scan \u2192 identify \u2192 import \u2192 tag \u2192 artwork).
 
     Creates a fresh database session, runs all pipeline phases, then
@@ -61,7 +61,7 @@ def _run_pipeline_inline(config: Config, dry_run: bool) -> None:
     config.dry_run = dry_run or config.dry_run
 
     project_root = get_project_root()
-    db_path = os.environ.get("MAESTRO_DB", "") or str(project_root / "db" / "maestro.db")
+    db_path = db_path or os.environ.get("MAESTRO_DB", "") or str(project_root / "db" / "maestro.db")
     engine = get_engine(db_path)
     init_db(engine)
     session = create_session(engine)
@@ -272,6 +272,9 @@ def cli(
         maestro artwork
         maestro daemon
     """
+    from typing import cast as _cast
+
+    db_path_arg: str | None = _cast("str | None", kwargs.get("database_path"))
     del kwargs
     if ctx.invoked_subcommand is None:
         config = load_config()
@@ -280,7 +283,7 @@ def cli(
             from maestro.daemon import Daemon
 
             click.echo("Starting Maestro daemon...")
-            daemon_instance = Daemon(config)
+            daemon_instance = Daemon(config, db_path=db_path_arg)
             daemon_instance.run()
             return
 
@@ -299,10 +302,7 @@ def cli(
 
                 config.library_roots = [RootEntry(path=library_path, type="library", enabled=True)]
 
-            _run_pipeline_inline(config, dry_run)
-            return
-
-        if daemon or download_path or library_path:
+            _run_pipeline_inline(config, dry_run, db_path_arg)
             return
 
         click.echo(ctx.get_help())
