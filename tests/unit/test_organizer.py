@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from sqlalchemy import Engine
 
 from maestro.db.core import create_session, get_engine, init_db
@@ -475,3 +474,114 @@ class TestImportEdgeCases:
         session.close()
 
         assert result == {"imported": 0, "skipped": 0, "replaced": 0, "errors": 0}
+
+
+# ===================================================================
+# import_downloads — dry-run
+# ===================================================================
+
+
+class TestImportDownloadsDryRun:
+    """Tests for dry-run mode in import_downloads."""
+
+    def test_import_downloads_dry_run_returns_actions(
+        self,
+        engine,
+        download_dir,
+    ) -> None:
+        """Dry run should return actions list instead of mutating files."""
+        _seed_identified_download(engine, str(download_dir))
+        session = create_session(engine)
+
+        lib_root = str(download_dir.parent.parent / "library")
+        result = import_downloads(
+            session=session,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+
+        assert result["dry_run"] is True
+        assert isinstance(result["actions"], list)
+        # Should have at least one "Would move:" action for the track(s)
+        move_actions = [a for a in result["actions"] if a.startswith("Would move")]
+        assert len(move_actions) > 0
+
+    def test_import_downloads_dry_run_does_not_mutate_db(
+        self,
+        engine,
+        download_dir,
+    ) -> None:
+        """Dry run must NOT create Artist/Album/Track records or change download status."""
+        _seed_identified_download(engine, str(download_dir))
+        session = create_session(engine)
+
+        # Count records before
+        artist_count_before = session.query(Artist).count()
+        album_count_before = session.query(Album).count()
+        track_count_before = session.query(Track).count()
+        dl = session.query(Download).first()
+        assert dl is not None
+        dl_status_before = dl.status
+
+        lib_root = str(download_dir.parent.parent / "library")
+        import_downloads(
+            session=session,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+
+        # No new records
+        assert session.query(Artist).count() == artist_count_before
+        assert session.query(Album).count() == album_count_before
+        assert session.query(Track).count() == track_count_before
+
+        # Download status unchanged
+        session.refresh(dl)
+        assert dl.status == dl_status_before
+
+    def test_import_downloads_dry_run_does_not_create_files(
+        self,
+        engine,
+        download_dir,
+    ) -> None:
+        """Dry run must not create any files or directories in the library root."""
+        _seed_identified_download(engine, str(download_dir))
+        session = create_session(engine)
+
+        lib_root = str(download_dir.parent.parent / "library")
+        lib_path = Path(lib_root)
+
+        import_downloads(
+            session=session,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+
+        # Library root should not exist (was never created)
+        assert not lib_path.exists()
+
+    def test_import_downloads_dry_run_returns_zero_import_count(
+        self,
+        engine,
+        download_dir,
+    ) -> None:
+        """Dry run must return imported=0 regardless of what would happen."""
+        _seed_identified_download(engine, str(download_dir))
+        session = create_session(engine)
+
+        lib_root = str(download_dir.parent.parent / "library")
+        result = import_downloads(
+            session=session,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+
+        assert result["imported"] == 0

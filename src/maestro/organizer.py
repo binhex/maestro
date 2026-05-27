@@ -11,7 +11,7 @@ import hashlib
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -160,7 +160,8 @@ def import_downloads(
     destination_pattern: str,
     move: bool = True,
     delete_replaced: bool = False,
-) -> dict[str, int]:
+    dry_run: bool = False,
+) -> dict[str, Any]:
     """Process identified downloads and import them into the library.
 
     For each download with status ``"identified"``:
@@ -189,13 +190,17 @@ def import_downloads(
         move: If ``True`` (default), move files; otherwise copy.
         delete_replaced: If ``True``, permanently delete replaced files
             instead of moving them to ``_replaced/``.
+        dry_run: If ``True``, simulate the import without mutating files
+            or database records. Returns a dict with a ``"dry_run"`` flag
+            and a list of action descriptions under ``"actions"``.
 
     Returns:
         A dictionary with counts: ``{"imported", "skipped", "replaced",
-        "errors"}``.
+        "errors"}``. When ``dry_run=True``, the dict also contains
+        ``{"dry_run": True, "actions": [str, ...]}``.
     """
     dest_root = Path(destination_root).resolve()
-    counts: dict[str, int] = {
+    counts: dict[str, Any] = {
         "imported": 0,
         "skipped": 0,
         "replaced": 0,
@@ -206,6 +211,64 @@ def import_downloads(
 
     if not downloads:
         logger.info("No identified downloads to import")
+        if dry_run:
+            counts["dry_run"] = True
+            counts["actions"] = []
+        return counts
+
+    # DRY RUN MODE — simulate without mutating files or database
+    if dry_run:
+        actions: list[str] = []
+        for dl in downloads:
+            source = Path(dl.source_path)
+            if not source.is_dir():
+                actions.append(f"Would skip: {source} (source directory missing)")
+                continue
+
+            artist_name = dl.identified_artist or "Unknown Artist"
+            album_title = dl.identified_album or source.name
+            audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
+            if not audio_files:
+                actions.append(f"Would skip: {source} (no audio files)")
+                continue
+
+            # Check quality against existing album
+            if dl.identified_album_id is not None:
+                existing_album = session.get(Album, dl.identified_album_id)
+                if existing_album and existing_album.tracks:
+                    skip_count = 0
+                    for afile in audio_files:
+                        track_key = afile.stem.lower()
+                        for t in existing_album.tracks:
+                            if t.file_path and Path(t.file_path).stem.lower() == track_key and t.format:
+                                decision = compare_tracks(
+                                    (t.format, t.bitrate),
+                                    (afile.suffix.lstrip(".").upper(), None),
+                                )
+                                if decision == "skip":
+                                    skip_count += 1
+                                    break
+                    if skip_count == len(audio_files):
+                        actions.append(f"Would skip: {source.name} (all tracks equal/better quality in library)")
+                        continue
+
+            for afile in audio_files:
+                stem = _fs_safe(afile.stem)
+                ext = afile.suffix.lstrip(".")
+                variables: dict[str, str] = {
+                    "artist": artist_name or "",
+                    "album": album_title or "",
+                    "filename": stem,
+                    "ext": ext,
+                    "year": str(dl.identified_year) if dl.identified_year else "",
+                    "genre": dl.identified_genre or "",
+                }
+                relative_path = render_path(variables, destination_pattern)
+                full_target = (dest_root / relative_path).resolve()
+                actions.append(f"Would move: {afile} \u2192 {full_target}")
+
+        counts["dry_run"] = True
+        counts["actions"] = actions
         return counts
 
     for dl in downloads:
