@@ -766,8 +766,7 @@ class TestCliArtworkDisabled:
 
         config = Mock()
 
-        result = _process_artwork_album(album, config, None, None)
-        assert result is None
+        _process_artwork_album(album, config, None, None)
 
     def test_artwork_no_tracks_in_database(self) -> None:
         """Artwork should skip albums with no tracks in database."""

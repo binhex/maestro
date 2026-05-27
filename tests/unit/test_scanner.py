@@ -477,8 +477,5 @@ class TestScanLibraryRoot:
         assert result["albums"] == 3
 
         # Check that progress was logged at least once
-        progress_calls = [
-            call for call in mock_logger.info.call_args_list
-            if "Scanned " in str(call)
-        ]
+        progress_calls = [call for call in mock_logger.info.call_args_list if "Scanned " in str(call)]
         assert len(progress_calls) >= 1
