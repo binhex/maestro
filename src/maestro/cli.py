@@ -53,7 +53,7 @@ def _run_pipeline_inline(config: Config, dry_run: bool) -> None:
     Creates a fresh database session, runs all pipeline phases, then
     closes the session.
     """
-    from maestro.db.core import get_engine, init_db, create_session
+    from maestro.db.core import create_session, get_engine, init_db
     from maestro.identifier import identify_downloads
     from maestro.organizer import import_downloads
     from maestro.scanner import scan_download_root
@@ -559,15 +559,18 @@ def import_(ctx: click.Context, dry_run: bool, tag: bool, artwork: bool, run_all
                 _write_tags_for_tracks(tracks)
 
         # --- 5. Artwork phase (optional) ---
-        if run_artwork and not effective_dry_run:
-            if config.artwork.download_album_art or config.artwork.download_fanart:
-                api_key = _lastfm_api_key(config)
-                sources = config.artwork.sources
-                albums = session.query(Album).join(Artist, Album.artist_id == Artist.id).all()
-                if albums:
-                    click.echo("Downloading artwork...")
-                    for album in albums:
-                        _process_artwork_album(album, config, api_key, sources)
+        if (
+            run_artwork
+            and not effective_dry_run
+            and (config.artwork.download_album_art or config.artwork.download_fanart)
+        ):
+            api_key = _lastfm_api_key(config)
+            sources = config.artwork.sources
+            albums = session.query(Album).join(Artist, Album.artist_id == Artist.id).all()
+            if albums:
+                click.echo("Downloading artwork...")
+                for album in albums:
+                    _process_artwork_album(album, config, api_key, sources)
     finally:
         session.close()
 
