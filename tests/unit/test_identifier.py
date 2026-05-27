@@ -845,3 +845,229 @@ class TestExtractVorbislikeTags:
         assert result is not None
         assert result["artist"] == "MP4 Artist"
         assert result["album"] == "MP4 Album"
+
+
+class TestReadId3TagsExtended:
+    """Additional edge cases for _read_id3_tags."""
+
+    def test_mutagen_not_installed(self, mocker) -> None:
+        """When mutagen is not installed, return None."""
+        mocker.patch("importlib.util.find_spec", return_value=None)
+        result = mid._read_id3_tags("/some/path")
+        assert result is None
+
+    def test_path_not_a_directory(self, tmp_path: Path) -> None:
+        """When path is not a directory, return None."""
+        non_dir = tmp_path / "nonexistent"
+        result = mid._read_id3_tags(str(non_dir))
+        assert result is None
+
+    def test_non_file_entries_skipped(self, tmp_path: Path, mocker) -> None:
+        """Subdirectories (non-file entries) are skipped."""
+        dl_dir = tmp_path / "album"
+        dl_dir.mkdir()
+        subdir = dl_dir / "subdir"
+        subdir.mkdir()
+        (dl_dir / "track.flac").write_text("data")
+        mocker.patch(
+            "maestro.identifier._extract_tags_from_file",
+            return_value={"artist": "A"},
+        )
+        result = mid._read_id3_tags(str(dl_dir))
+        assert result == {"artist": "A"}
+
+    def test_non_audio_extensions_skipped(self, tmp_path: Path, mocker) -> None:
+        """Non-audio file extensions are skipped."""
+        dl_dir = tmp_path / "album"
+        dl_dir.mkdir()
+        (dl_dir / "cover.jpg").write_text("not audio")
+        (dl_dir / "track.flac").write_text("data")
+        mocker.patch(
+            "maestro.identifier._extract_tags_from_file",
+            return_value={"artist": "A"},
+        )
+        result = mid._read_id3_tags(str(dl_dir))
+        assert result == {"artist": "A"}
+
+    def test_exception_during_extraction_skipped(self, tmp_path: Path, mocker) -> None:
+        """Exception during tag extraction is caught and skipped."""
+        dl_dir = tmp_path / "album"
+        dl_dir.mkdir()
+        (dl_dir / "corrupt.mp3").write_text("garbage")
+        (dl_dir / "good.flac").write_text("data")
+        mocker.patch(
+            "maestro.identifier._extract_tags_from_file",
+            side_effect=[RuntimeError("corrupt"), {"artist": "Good"}],
+        )
+        result = mid._read_id3_tags(str(dl_dir))
+        assert result == {"artist": "Good"}
+
+
+class TestMatchToLibraryExtended:
+    """Additional edge cases for _match_to_library."""
+
+    @pytest.fixture
+    def engine(self, tmp_path: Path) -> Generator[Engine, None, None]:
+        db_path = str(tmp_path / "test.db")
+        eng = get_engine(db_path, echo=False)
+        init_db(eng)
+        yield eng
+        eng.dispose()
+
+    def test_match_no_album_in_library(self, engine, mocker) -> None:
+        """Artist exists but album does not — return None."""
+        from maestro.db.core import create_session
+
+        session = create_session(engine)
+        artist = Artist(name="TestArtist", slug="testartist")
+        session.add(artist)
+        session.flush()
+
+        # Existing album has different title
+        album = Album(title="DifferentAlbum", artist_id=artist.id)
+        session.add(album)
+        session.flush()
+
+        result = mid._match_to_library(
+            session,
+            artist_name="TestArtist",
+            album_title="NonExistentAlbum",
+        )
+        assert result is None
+        session.close()
+
+    def test_match_sets_year_when_album_missing(self, engine, mocker) -> None:
+        """When year is provided and album.year is None, year is set."""
+        from maestro.db.core import create_session
+
+        session = create_session(engine)
+        artist = Artist(name="YearArtist", slug="yearartist")
+        session.add(artist)
+        session.flush()
+
+        album = Album(title="YearAlbum", artist_id=artist.id, year=None)
+        session.add(album)
+        session.flush()
+
+        result = mid._match_to_library(
+            session,
+            artist_name="YearArtist",
+            album_title="YearAlbum",
+            year=1999,
+        )
+        assert result == album.id
+        # The in-memory object should be updated
+        assert album.year == 1999
+        session.close()
+
+    def test_match_sets_genre_when_album_missing(self, engine, mocker) -> None:
+        """When genre is provided and album.genre is None, genre is set."""
+        from maestro.db.core import create_session
+
+        session = create_session(engine)
+        artist = Artist(name="GenreArtist", slug="genreartist")
+        session.add(artist)
+        session.flush()
+
+        album = Album(title="GenreAlbum", artist_id=artist.id, genre=None)
+        session.add(album)
+        session.flush()
+
+        result = mid._match_to_library(
+            session,
+            artist_name="GenreArtist",
+            album_title="GenreAlbum",
+            genre="Electronic",
+        )
+        assert result == album.id
+        # The in-memory object should be updated
+        assert album.genre == "Electronic"
+        session.close()
+
+
+class TestExtractMp4TagsExtended:
+    """Additional edge cases for _extract_mp4_tags."""
+
+    def test_no_getitem_returns_none(self) -> None:
+        """An object without __getitem__ returns None."""
+        result = mid._extract_mp4_tags(None)
+        assert result is None
+
+    def test_non_list_atom_value(self) -> None:
+        """When an atom value is a string (not list), it is converted via str()."""
+        class MockTags:
+            """Mock MP4 tags with string values instead of lists."""
+            def __getitem__(self, key: str) -> str:
+                if key == "\xa9ART":
+                    return "Artist Name"
+                if key == "\xa9alb":
+                    return "Album Name"
+                raise KeyError(key)
+
+        result = mid._extract_mp4_tags(MockTags())
+        assert result is not None
+        assert result["artist"] == "Artist Name"
+        assert result["album"] == "Album Name"
+
+
+class TestExtractTagsFromFileExtended:
+    """Additional edge cases for _extract_tags_from_file."""
+
+    def test_mp3_id3_no_header_error(self, tmp_path: Path, mocker) -> None:
+        """MP3 file with ID3NoHeaderError returns None."""
+        from mutagen.id3 import ID3NoHeaderError
+
+        fpath = tmp_path / "track.mp3"
+        fpath.write_text("dummy")
+        mocker.patch("mutagen.id3.ID3", side_effect=ID3NoHeaderError)
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
+
+    def test_mp3_exception_returns_none(self, tmp_path: Path, mocker) -> None:
+        """MP3 file with generic Exception returns None."""
+        fpath = tmp_path / "track.mp3"
+        fpath.write_text("dummy")
+        mocker.patch("mutagen.id3.ID3", side_effect=RuntimeError("corrupt"))
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
+
+    def test_other_audio_tags_none_returns_none(self, tmp_path: Path, mocker) -> None:
+        """Non-FLAC/MP3 audio with tags=None returns None."""
+        fpath = tmp_path / "track.ogg"
+        fpath.write_text("dummy")
+        mock_file = mocker.MagicMock()
+        mock_file.tags = None
+        mocker.patch("mutagen.File", return_value=mock_file)
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
+
+    def test_other_audio_id3like_tags(self, tmp_path: Path, mocker) -> None:
+        """Non-FLAC/MP3 audio with ID3-like tags (getall) extracts correctly."""
+        fpath = tmp_path / "track.ogg"
+        fpath.write_text("dummy")
+
+        class MockFrame:
+            def __str__(self) -> str:
+                return "Artist"
+
+        class MockId3Tags:
+            """Simulates ID3-like tags with getall."""
+            def getall(self, frame_id: str) -> list:
+                if frame_id in ("TPE1", "TALB"):
+                    return [MockFrame()]
+                return []
+
+        mock_file = mocker.MagicMock()
+        mock_file.tags = MockId3Tags()
+        mocker.patch("mutagen.File", return_value=mock_file)
+        result = mid._extract_tags_from_file(fpath)
+        assert result is not None
+        assert result["artist"] == "Artist"
+
+    def test_mutagen_file_exception_returns_none(self, tmp_path: Path, mocker) -> None:
+        """When mutagen.File raises an exception, None is returned."""
+        fpath = tmp_path / "track.ogg"
+        fpath.write_text("dummy")
+        mocker.patch("mutagen.File", side_effect=RuntimeError("corrupt file"))
+        result = mid._extract_tags_from_file(fpath)
+        assert result is None
