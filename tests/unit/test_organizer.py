@@ -292,6 +292,37 @@ class TestImportReplacedFilesMovedToReplaced:
         # Old file is gone
         # (the new file was moved in its place, so the old content is simply lost)
 
+    def test_import_replaced_files_replaced_count_increments(
+        self,
+        engine: Engine,
+        download_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """When replacing, count reflects how many files were replaced."""
+        dest_root = tmp_path / "music_count"
+        pattern = "{artist}/{album}/{filename}.{ext}"
+
+        # Pre-seed only track01
+        existing_target = dest_root / "Some Artist" / "Some Album" / "track01.flac"
+        existing_target.parent.mkdir(parents=True, exist_ok=True)
+        existing_target.write_bytes(b"old")
+
+        _seed_identified_download(engine, str(download_dir))
+
+        session = create_session(engine)
+        result = import_downloads(
+            session=session,
+            destination_root=str(dest_root),
+            destination_pattern=pattern,
+            move=True,
+            delete_replaced=True,
+        )
+        session.close()
+
+        # track01 was replaced (1), track02 was new import (2 total)
+        assert result["imported"] == 1  # one album imported
+        assert result["replaced"] == 1  # one file replaced
+
 
 # ===================================================================
 # import_downloads — edge cases
@@ -475,6 +506,223 @@ class TestImportEdgeCases:
 
         assert result == {"imported": 0, "skipped": 0, "replaced": 0, "errors": 0}
 
+    def test_album_update_fills_missing_year_genre(
+        self,
+        engine: Engine,
+        download_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """When an existing album has missing year/genre, they are filled from the download."""
+        session = create_session(engine)
+        artist = Artist(name="Some Artist", slug="some-artist")
+        session.add(artist)
+        session.flush()
+
+        # Create album without year and genre (both None)
+        album = Album(
+            title="Some Album",
+            artist_id=artist.id,
+            year=None,
+            genre=None,
+        )
+        session.add(album)
+        session.commit()
+        session.close()
+
+        # Do NOT set identified_album_id so that _get_or_create_album is called,
+        # which will find the existing album by (artist_id, title) and update year/genre
+        # Create the download manually with year and genre set
+        session2 = create_session(engine)
+        dl = Download(
+            source_path=str(download_dir),
+            status="identified",
+            identified_artist="Some Artist",
+            identified_album="Some Album",
+            identified_year=1999,
+            identified_genre="Electronic",
+        )
+        session2.add(dl)
+        session2.commit()
+        session2.close()
+
+        dest_root = tmp_path / "music_update"
+        pattern = "{artist}/{album}/{filename}.{ext}"
+
+        session3 = create_session(engine)
+        result = import_downloads(
+            session=session3,
+            destination_root=str(dest_root),
+            destination_pattern=pattern,
+        )
+        session3.close()
+
+        assert result["imported"] == 1
+
+        # Verify year and genre were updated on the existing album
+        session4 = create_session(engine)
+        updated_album = session4.query(Album).filter(Album.title == "Some Album").first()
+        assert updated_album is not None
+        assert updated_album.year == 1999, f"Expected 1999, got {updated_album.year}"
+        assert updated_album.genre == "Electronic", f"Expected Electronic, got {updated_album.genre}"
+        session4.close()
+
+    def test_non_existent_album_id_creates_new_album(
+        self,
+        engine: Engine,
+        download_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """When identified_album_id points to a non-existent album, a new album is created."""
+        _seed_identified_download(engine, str(download_dir), album_id=99999)
+
+        dest_root = tmp_path / "music_new_album"
+        pattern = "{artist}/{album}/{filename}.{ext}"
+
+        session = create_session(engine)
+        result = import_downloads(
+            session=session,
+            destination_root=str(dest_root),
+            destination_pattern=pattern,
+        )
+        session.close()
+
+        assert result["imported"] == 1
+
+        session2 = create_session(engine)
+        albums = list(session2.query(Album).all())
+        assert len(albums) == 1
+        assert albums[0].title == "Some Album"
+        session2.close()
+
+    def test_import_skip_existing_higher_quality_track(
+        self,
+        engine: Engine,
+        download_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """When library has equal or better quality, existing tracks are skipped."""
+        session = create_session(engine)
+        artist = Artist(name="Some Artist", slug="some-artist")
+        session.add(artist)
+        session.flush()
+
+        # Create an album with existing tracks that have the same names
+        album = Album(title="Some Album", artist_id=artist.id, year=2020, genre="Test")
+        session.add(album)
+        session.flush()
+
+        # Existing track at same quality tier as download (FLAC → compare_tracks returns "skip")
+        track1 = Track(
+            album_id=album.id,
+            title="track01",
+            format="FLAC",
+            bitrate=None,
+            file_path=str(download_dir / "track01.flac"),
+            file_size=100,
+            file_hash="aabbccddeeff0011",
+        )
+        session.add(track1)
+        track2 = Track(
+            album_id=album.id,
+            title="track02",
+            format="FLAC",
+            bitrate=None,
+            file_path=str(download_dir / "track02.flac"),
+            file_size=100,
+            file_hash="1122334455667788",
+        )
+        session.add(track2)
+        session.commit()
+        album_id = album.id
+        session.close()
+
+        # Seed download with album_id pointing to the album with existing tracks
+        _seed_identified_download(engine, str(download_dir), album_id=album_id)
+
+        dest_root = tmp_path / "music_skip"
+        pattern = "{artist}/{album}/{filename}.{ext}"
+
+        session2 = create_session(engine)
+        result = import_downloads(
+            session=session2,
+            destination_root=str(dest_root),
+            destination_pattern=pattern,
+            move=True,
+        )
+        session2.close()
+
+        # Both tracks should be skipped (FLAC vs FLAC → same tier)
+        # The album is still imported with 1 count, but tracks are skipped
+        assert result["imported"] == 1
+        assert result["skipped"] == 2
+        assert result["errors"] == 0
+
+    def test_path_traversal_guard_skips_escaping_path(
+        self,
+        engine: Engine,
+        tmp_path: Path,
+    ) -> None:
+        """When a rendered path escapes destination root, it is skipped silently."""
+        # Use a pattern with .. segment so the resolved path escapes dest_root
+        src = tmp_path / "downloads" / "Traversal"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "track.flac").write_bytes(b"content")
+
+        _seed_identified_download(engine, str(src), artist="Some Artist", album="Album")
+
+        dest_root = tmp_path / "music_traversal"
+        # Pattern starting with ../ will cause rendered path to escape
+        pattern = "../../{artist}/{album}/{filename}.{ext}"
+
+        session = create_session(engine)
+        result = import_downloads(
+            session=session,
+            destination_root=str(dest_root),
+            destination_pattern=pattern,
+        )
+        session.close()
+
+        # The import succeeds (album is created, but file is skipped due to traversal)
+        assert result["imported"] == 1
+
+        # The file should not exist at the escaped location
+        escaped = dest_root.parent.parent / "Some Artist" / "Album" / "track.flac"
+        assert not escaped.exists()
+
+        # File should also not exist within dest_root
+        within = dest_root / ".." / ".." / "Some Artist" / "Album" / "track.flac"
+        assert not within.exists()
+
+    def test_import_exception_sets_error_status(
+        self,
+        engine: Engine,
+        download_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """When processing a download raises, status is set to error."""
+        from unittest.mock import patch
+
+        _seed_identified_download(engine, str(download_dir))
+
+        with patch("maestro.organizer._process_download", side_effect=RuntimeError("Unexpected error")):
+            session = create_session(engine)
+            result = import_downloads(
+                session=session,
+                destination_root=str(tmp_path / "music"),
+                destination_pattern="{artist}/{album}/{filename}.{ext}",
+            )
+            session.close()
+
+        assert result["imported"] == 0
+        assert result["errors"] == 1
+
+        session2 = create_session(engine)
+        dl = session2.query(Download).first()
+        assert dl is not None
+        assert dl.status == "error"
+        assert dl.error_message is not None
+        session2.close()
+
 
 # ===================================================================
 # import_downloads — dry-run
@@ -615,3 +863,126 @@ class TestImportDownloadsDryRun:
 
         replace_actions = [a for a in result.get("actions", []) if a.startswith("Would replace")]
         assert len(replace_actions) > 0, f"Expected 'Would replace' actions, got: {result.get('actions', [])}"
+
+    def test_import_downloads_dry_run_quality_skip(
+        self,
+        engine,
+        download_dir,
+        tmp_path,
+    ) -> None:
+        """When a better-quality library version exists, dry-run says 'Would skip:'."""
+        from maestro.db.models import Album, Artist, Track
+
+        # First, create a library album with existing tracks
+        session = create_session(engine)
+        artist = Artist(name="Some Artist", slug="some-artist")
+        session.add(artist)
+        session.flush()
+
+        album = Album(title="Some Album", artist_id=artist.id, year=2020, genre="Test")
+        session.add(album)
+        session.flush()
+        album_id = album.id
+
+        # Existing tracks at higher quality (FLAC) — same stems as download files
+        for name in ("track01", "track02"):
+            track = Track(
+                album_id=album_id,
+                title=name,
+                format="FLAC",
+                bitrate=1411,
+                file_path=str(download_dir / f"{name}.flac"),
+                file_size=100,
+                file_hash="aabbccddeeff0011",
+            )
+            session.add(track)
+        session.commit()
+        session.close()
+
+        # Now seed the download with a reference to this album
+        _seed_identified_download(engine, str(download_dir), album_id=album_id)
+
+        session2 = create_session(engine)
+        lib_root = str(tmp_path / "library")
+        result = import_downloads(
+            session=session2,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+        session2.close()
+
+        assert result["dry_run"] is True
+        skip_actions = [a for a in result.get("actions", []) if a.startswith("Would skip")]
+        assert len(skip_actions) > 0, f"Expected quality skip actions, got: {result.get('actions', [])}"
+
+    def test_import_downloads_dry_run_empty_downloads(
+        self,
+        engine,
+        tmp_path,
+    ) -> None:
+        """Dry-run with no identified downloads returns empty actions."""
+        session = create_session(engine)
+        result = import_downloads(
+            session=session,
+            destination_root=str(tmp_path / "library"),
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+        session.close()
+
+        assert result["dry_run"] is True
+        assert result["actions"] == []
+        assert result["imported"] == 0
+
+    def test_import_downloads_dry_run_skip_missing_source(
+        self,
+        engine,
+        tmp_path,
+    ) -> None:
+        """Dry-run with a missing source directory says 'Would skip'."""
+        missing_dir = tmp_path / "downloads" / "nonexistent"
+        _seed_identified_download(engine, str(missing_dir))
+
+        session = create_session(engine)
+        lib_root = str(tmp_path / "library")
+        result = import_downloads(
+            session=session,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+        session.close()
+
+        assert result["dry_run"] is True
+        skip_actions = [a for a in result.get("actions", []) if a.startswith("Would skip")]
+        assert len(skip_actions) > 0
+
+    def test_import_downloads_dry_run_skip_no_audio(
+        self,
+        engine,
+        tmp_path,
+    ) -> None:
+        """Dry-run with no audio files says 'Would skip'."""
+        src = tmp_path / "downloads" / "No Audio"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "readme.txt").write_bytes(b"just text")
+        _seed_identified_download(engine, str(src))
+
+        session = create_session(engine)
+        lib_root = str(tmp_path / "library")
+        result = import_downloads(
+            session=session,
+            destination_root=lib_root,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+        session.close()
+
+        assert result["dry_run"] is True
+        skip_actions = [a for a in result.get("actions", []) if a.startswith("Would skip")]
+        assert len(skip_actions) > 0
