@@ -15,6 +15,8 @@ from maestro.logger import create_logger
 from maestro.utils import get_project_root
 
 if TYPE_CHECKING:
+    from typing import Any
+
     from sqlalchemy.engine import Engine
     from sqlalchemy.orm import Session
 
@@ -418,11 +420,47 @@ def tag(ctx: click.Context, clear: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _process_artwork_album(
+    album: Any,
+    config: Config,
+    api_key: str | None,
+    sources: list[str] | None,
+) -> None:
+    """Download artwork for a single album and print results."""
+    from maestro.artwork import download_artwork_for_album
+
+    if not album.artist:
+        return
+    if album.tracks:
+        album_dir = str(Path(album.tracks[0].file_path).parent)
+    else:
+        click.echo(f"Skipping '{album.title}' \u2014 no tracks in database.")
+        return
+
+    click.echo(f"Fetching artwork for '{album.artist.name} \u2014 {album.title}'...")
+    result = download_artwork_for_album(
+        album_dir=album_dir,
+        artist=album.artist.name,
+        album=album.title,
+        album_art_filename=config.artwork.album_art,
+        fanart_filename=config.artwork.fanart,
+        download_album_art=config.artwork.download_album_art,
+        download_fanart=config.artwork.download_fanart,
+        lastfm_api_key=api_key,
+        sources=sources,
+        max_width=config.artwork.width,
+        max_height=config.artwork.height,
+        aspect_tolerance_percentage=config.artwork.aspect_tolerance_percentage,
+    )
+    source = result.get("source_used") or "none"
+    click.echo(f"  Album art: {'\u2713' if result['album_art'] else '\u2717'} ({source})")
+    click.echo(f"  Fanart:    {'\u2713' if result['fanart'] else '\u2717'}")
+
+
 @cli.command()
 @click.pass_context
 def artwork(ctx: click.Context) -> None:
     """Download album art and fanart for all albums in the library."""
-    from maestro.artwork import download_artwork_for_album
     from maestro.db.models import Album, Artist
 
     config, _engine, session = _setup(ctx)
@@ -442,41 +480,7 @@ def artwork(ctx: click.Context) -> None:
         sources = config.artwork.sources
 
         for album in albums:
-            if not album.artist:
-                continue
-            # Determine album directory from the first track's location
-            if album.tracks:
-                album_dir = str(Path(album.tracks[0].file_path).parent)
-            else:
-                click.echo(
-                    f"Skipping '{album.title}' — no tracks in database.",
-                )
-                continue
-
-            click.echo(
-                f"Fetching artwork for '{album.artist.name} — {album.title}'...",
-            )
-            result = download_artwork_for_album(
-                album_dir=album_dir,
-                artist=album.artist.name,
-                album=album.title,
-                album_art_filename=config.artwork.album_art,
-                fanart_filename=config.artwork.fanart,
-                download_album_art=config.artwork.download_album_art,
-                download_fanart=config.artwork.download_fanart,
-                lastfm_api_key=api_key,
-                sources=sources,
-                max_width=config.artwork.width,
-                max_height=config.artwork.height,
-                aspect_tolerance_percentage=config.artwork.aspect_tolerance_percentage,
-            )
-            source = result.get("source_used") or "none"
-            click.echo(
-                f"  Album art: {'✓' if result['album_art'] else '✗'} ({source})",
-            )
-            click.echo(
-                f"  Fanart:    {'✓' if result['fanart'] else '✗'}",
-            )
+            _process_artwork_album(album, config, api_key, sources)
     finally:
         session.close()
 
