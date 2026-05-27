@@ -28,6 +28,32 @@ def _tokenize(pattern: str) -> list[tuple[str, str]]:
     return tokens
 
 
+def _build_regex(
+    tokens: list[tuple[str, str]],
+    max_vars: int | None = None,
+) -> tuple[str, list[str]]:
+    """Build a regex pattern from tokens, optionally limiting variable count.
+
+    Args:
+        tokens: List of (type, value) pairs from :func:`_tokenize`.
+        max_vars: Maximum number of variables to include. ``None`` means all.
+
+    Returns:
+        Tuple of (regex_string, variable_names).
+    """
+    parts: list[str] = []
+    names: list[str] = []
+    for token_type, value in tokens:
+        if max_vars is not None and len(names) >= max_vars:
+            break
+        if token_type == "literal":
+            parts.append(re.escape(value))
+        else:
+            parts.append(r"(.+)")
+            names.append(value)
+    return f"^{''.join(parts)}$", names
+
+
 def parse_variables(path: str, pattern: str) -> dict[str, str]:
     """Extract variable values from a real filesystem path using a pattern.
 
@@ -44,36 +70,15 @@ def parse_variables(path: str, pattern: str) -> dict[str, str]:
     """
     tokens = _tokenize(pattern)
 
-    # Build regex from pattern
-    regex_parts: list[str] = []
-    var_names: list[str] = []
-    for token_type, value in tokens:
-        if token_type == "literal":
-            regex_parts.append(re.escape(value))
-        else:
-            regex_parts.append(r"(.+)")
-            var_names.append(value)
-
-    full_regex = f"^{''.join(regex_parts)}$"
+    # Full match -- all variables
+    full_regex, var_names = _build_regex(tokens)
     match = re.match(full_regex, path)
     if match:
         return dict(zip(var_names, match.groups(), strict=False))
 
-    # Partial match — try matching as many leading variables as possible
+    # Partial match -- try matching as many leading variables as possible
     for end_idx in range(len(var_names) - 1, 0, -1):
-        parts: list[str] = []
-        names: list[str] = []
-        for token_type, value in tokens:
-            if token_type == "literal":
-                if len(names) >= end_idx:
-                    break
-                parts.append(re.escape(value))
-            else:
-                if len(names) >= end_idx:
-                    break
-                parts.append(r"(.+)")
-                names.append(value)
-        partial_regex = f"^{''.join(parts)}$"
+        partial_regex, names = _build_regex(tokens, max_vars=end_idx)
         m = re.match(partial_regex, path)
         if m:
             return dict(zip(names, m.groups(), strict=False))
