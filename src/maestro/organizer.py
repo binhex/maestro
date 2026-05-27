@@ -341,7 +341,7 @@ def _import_audio_files(
     delete_replaced: bool,
     artist_name: str,
     album_title: str,
-    counts: dict[str, int],
+    counts: dict[str, Any],
 ) -> None:
     """Import audio files with quality comparison and file operations."""
     existing_tracks_by_name: dict[str, Track] = {}
@@ -391,7 +391,7 @@ def _process_download(
     pattern: str,
     move: bool,
     delete_replaced: bool,
-    counts: dict[str, int],
+    counts: dict[str, Any],
 ) -> None:
     """Process a single identified download record."""
     source = Path(download.source_path)
@@ -445,7 +445,7 @@ def _import_file(
     pattern: str,
     move: bool,
     delete_replaced: bool,
-    counts: dict[str, int],
+    counts: dict[str, Any],
     artist_name: str,
     album_title: str,
     year: int | None,
