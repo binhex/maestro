@@ -287,7 +287,10 @@ def cli(
             daemon_instance.run()
             return
 
-        if download_path or library_path:
+        has_cli_paths = bool(download_path or library_path)
+        has_config_roots = bool(config.download_roots or config.library_roots)
+
+        if has_cli_paths or has_config_roots:
             from maestro.logger import create_logger
 
             create_logger(log_format=_DEFAULT_LOG_FORMAT)

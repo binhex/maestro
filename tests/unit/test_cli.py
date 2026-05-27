@@ -994,6 +994,36 @@ class TestTopLevelUnifiedPipeline:
         assert "--library-path" in result.output
         assert "--daemon" in result.output
 
+    @patch("maestro.cli.load_config")
+    @patch("maestro.cli.create_session")
+    @patch("maestro.cli.get_engine")
+    @patch("maestro.cli.init_db")
+    def test_maestro_runs_pipeline_from_config_roots(
+        self,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        mock_load_config: Mock,
+        mock_create_session: Mock,
+    ) -> None:
+        """Running bare ``maestro`` should run the pipeline when roots exist in config."""
+        from maestro.config import Config, RootEntry
+
+        # Config has both download and library roots (no CLI paths provided)
+        config = Config(
+            download_roots=[
+                RootEntry(path="/downloads/music", type="download", enabled=True),
+            ],
+            library_roots=[
+                RootEntry(path="/library/music", type="library", enabled=True),
+            ],
+        )
+        mock_load_config.return_value = config
+
+        with patch("maestro.cli._run_pipeline_inline") as mock_pipeline:
+            self.runner.invoke(cli, [])
+
+            assert mock_pipeline.called, "bare maestro should run pipeline when config has roots"
+
 
 class TestCliConfigDisplay:
     """Tests for 'maestro config' display output."""
