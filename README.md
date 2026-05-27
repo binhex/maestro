@@ -38,11 +38,28 @@ maestro --help
 | `maestro scan [roots...]` | Scan download roots, or `--library` to scan existing library |
 | `maestro identify` | Identify albums via ID3 tags or folder heuristics |
 | `maestro check` | Check download quality against library |
-| `maestro import [--dry-run]` | Import identified albums into library. `--dry-run` simulates without changing files |
+| `maestro import [--dry-run] [--all]` | Import identified albums into library. `--dry-run` simulates without changing files. `--all` also writes tags and downloads artwork after import |
 | `maestro tag [--clear]` | Write or clear ID3 tags |
 | `maestro artwork` | Download album art and fanart (run `scan --library` first). Can be disabled via `download_album_art` / `download_fanart` config |
-| `maestro daemon [--dry-run]` | Run scheduled pipeline in foreground. `--dry-run` simulates imports without changing files |
+| `maestro daemon` | Run scheduled pipeline in foreground. `--daemon` can also be passed as a top-level option: `maestro --daemon` |
 | `maestro config` | Display current configuration |
+
+### Top-level options
+
+Run without subcommand to use the all-in-one pipeline:
+
+| Option | Description |
+|--------|-------------|
+| `--download-path <dir>` | Path to a download directory to scan and import (overrides config) |
+| `--library-path <dir>` | Path to the music library directory (overrides config) |
+| `--dry-run` | Simulate the pipeline without making changes |
+| `--daemon` | Start the daemon (scheduled pipeline execution) |
+
+Example:
+
+```bash
+maestro --download-path /path/to/downloads --library-path /path/to/library
+```
 
 ### Configuration
 

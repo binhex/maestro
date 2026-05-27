@@ -1359,7 +1359,7 @@ class TestRunPipelineInline:
         tmp_path: Path,
     ) -> None:
         """With no download roots, scan/identify skipped; import still runs with --library-path."""
-        from maestro.config import Config, RootEntry
+        from maestro.config import Config
 
         lib_root = tmp_path / "library"
         lib_root.mkdir()
