@@ -766,7 +766,9 @@ class TestCliArtworkDisabled:
 
         config = Mock()
 
+        # Should complete without raising when album has no artist
         _process_artwork_album(album, config, None, None)
+        # Reaching here means the early-return path worked (no crash)
 
     def test_artwork_no_tracks_in_database(self) -> None:
         """Artwork should skip albums with no tracks in database."""

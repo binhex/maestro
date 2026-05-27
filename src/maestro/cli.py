@@ -320,16 +320,30 @@ def import_(ctx: click.Context, dry_run: bool) -> None:
 
     config, _engine, session = _setup(ctx)
     try:
+        effective_dry_run = dry_run or config.dry_run
+
         # --- 1. Auto-scan download roots ---
         download_roots = [r for r in config.download_roots if r.enabled]
         for entry in download_roots:
             click.echo(f"Scanning download root {entry.path}...")
-            scan_download_root(session, entry.path, pattern=getattr(entry, "pattern", None))
+            try:
+                scan_result = scan_download_root(
+                    session,
+                    entry.path,
+                    pattern=getattr(entry, "pattern", None),
+                )
+                click.echo(
+                    f"  created={scan_result.get('created', 0)} "
+                    f"skipped={scan_result.get('skipped', 0)}",
+                )
+            except Exception:
+                click.echo(f"  Error scanning {entry.path}", err=True)
 
         # --- 2. Auto-identify new downloads ---
-        identified = identify_downloads(session)
-        if identified:
-            click.echo(f"Identified {len(identified)} download(s).")
+        if download_roots:
+            identified = identify_downloads(session)
+            if identified:
+                click.echo(f"Identified {len(identified)} download(s).")
 
         # --- 3. Import identified downloads ---
         library_roots = [r for r in config.library_roots if r.enabled]
