@@ -883,6 +883,118 @@ class TestImportAutoPipeline:
             assert mock_import.called, "import should call import_downloads"
 
 
+class TestImportUnifiedPipeline:
+    """Tests that ``maestro import --all`` runs the full pipeline (tag + artwork)."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    @patch("maestro.cli.load_config")
+    @patch("maestro.cli.get_engine")
+    def test_import_all_triggers_tag_and_artwork(
+        self,
+        mock_get_engine: Mock,
+        mock_load_config: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """When ``--all`` is passed, import runs tag and artwork after import."""
+        from maestro.config import Config, RootEntry
+
+        dl_root = tmp_path / "downloads"
+        album_dir = dl_root / "TestArtist" / "TestAlbum"
+        album_dir.mkdir(parents=True)
+        (album_dir / "track01.flac").write_bytes(b"audio data")
+
+        config = Config(
+            download_roots=[
+                RootEntry(path=str(dl_root), type="download", enabled=True),
+            ],
+            library_roots=[
+                RootEntry(
+                    path=str(tmp_path / "library"),
+                    type="library",
+                    enabled=True,
+                    destination_pattern="{artist}/{album}/{filename}.{ext}",
+                ),
+            ],
+        )
+        config.dry_run = False
+        mock_load_config.return_value = config
+
+        from maestro.db.core import create_session, get_engine, init_db
+
+        db_path = str(tmp_path / "test.db")
+        engine = get_engine(db_path, echo=False)
+        init_db(engine)
+        session = create_session(engine)
+        mock_get_engine.return_value = engine
+
+        # Seed a track in the DB so tag/artwork phases have something to process
+        from maestro.db.models import Album, Artist, Track
+
+        artist = Artist(name="Test Artist", slug="test-artist")
+        session.add(artist)
+        session.flush()
+        album = Album(title="Test Album", artist_id=artist.id)
+        session.add(album)
+        session.flush()
+        track = Track(
+            album_id=album.id,
+            title="track01",
+            format="FLAC",
+            file_path=str(album_dir / "track01.flac"),
+            file_size=100,
+            file_hash="aabbccddeeff0011",
+        )
+        session.add(track)
+        session.commit()
+
+        with (
+            patch("maestro.cli.create_session", return_value=session),
+            patch("maestro.scanner.scan_download_root"),
+            patch("maestro.identifier.identify_downloads"),
+            patch("maestro.organizer.import_downloads"),
+            patch("maestro.cli._write_tags_for_tracks") as mock_tag,
+            patch("maestro.cli._process_artwork_album") as mock_artwork,
+        ):
+            self.runner.invoke(cli, ["import", "--all"])
+
+            assert mock_tag.called, "--all should trigger tag phase after import"
+            assert mock_artwork.called, "--all should trigger artwork phase after import"
+
+    @patch("maestro.cli.load_config")
+    @patch("maestro.cli.get_engine")
+    @patch("maestro.cli.init_db")
+    def test_import_help_shows_all_flag(
+        self,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        mock_load_config: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """--help on import should show --all, --tag, --artwork flags."""
+        result = self.runner.invoke(cli, ["import", "--help"])
+        assert result.exit_code == 0
+        assert "--all" in result.output
+        assert "--tag" in result.output
+        assert "--artwork" in result.output
+
+
+class TestTopLevelUnifiedPipeline:
+    """Tests that top-level ``maestro`` shows new options."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    def test_maestro_help_shows_path_options(self) -> None:
+        """--help on top-level maestro should show the new path and daemon options."""
+        result = self.runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "--download-path" in result.output
+        assert "--library-path" in result.output
+        assert "--daemon" in result.output
+
+
 class TestCliConfigDisplay:
     """Tests for 'maestro config' display output."""
 

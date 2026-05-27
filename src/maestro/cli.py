@@ -47,6 +47,88 @@ def _lastfm_api_key(config: Config) -> str | None:
     return os.environ.get("LASTFM_API_KEY")
 
 
+def _run_pipeline_inline(config: Config, dry_run: bool) -> None:
+    """Run the full pipeline (scan \u2192 identify \u2192 import \u2192 tag \u2192 artwork).
+
+    Creates a fresh database session, runs all pipeline phases, then
+    closes the session.
+    """
+    from maestro.db.core import get_engine, init_db, create_session
+    from maestro.identifier import identify_downloads
+    from maestro.organizer import import_downloads
+    from maestro.scanner import scan_download_root
+
+    config.dry_run = dry_run or config.dry_run
+
+    project_root = get_project_root()
+    db_path = os.environ.get("MAESTRO_DB", "") or str(project_root / "db" / "maestro.db")
+    engine = get_engine(db_path)
+    init_db(engine)
+    session = create_session(engine)
+
+    try:
+        # --- Scan ---
+        download_roots = [r for r in config.download_roots if r.enabled]
+        for entry in download_roots:
+            click.echo(f"Scanning download root {entry.path}...")
+            try:
+                scan_result = scan_download_root(session, entry.path)
+                click.echo(f"  created={scan_result.get('created', 0)} skipped={scan_result.get('skipped', 0)}")
+            except Exception:
+                click.echo(f"  Error scanning {entry.path}", err=True)
+
+        # --- Identify ---
+        if download_roots:
+            identified = identify_downloads(session)
+            if identified:
+                click.echo(f"Identified {len(identified)} download(s).")
+
+        # --- Import ---
+        library_roots = [r for r in config.library_roots if r.enabled]
+        if library_roots:
+            lib_root = library_roots[0]
+            dest_pattern = lib_root.destination_pattern or "{artist}/{album}/{filename}.{ext}"
+            click.echo(f"Importing downloads into {lib_root.path}...")
+            result = import_downloads(
+                session=session,
+                destination_root=lib_root.path,
+                destination_pattern=dest_pattern,
+                move=not config.dry_run,
+                delete_replaced=config.quality.delete_replaced,
+                dry_run=config.dry_run,
+            )
+            if config.dry_run:
+                click.echo("--- DRY RUN --- No files were changed ---")
+                for action in result.get("actions", []):
+                    click.echo(f"  {action}")
+                click.echo(f"Summary: would import={result.get('imported', 0)} would skip={result.get('skipped', 0)}")
+            else:
+                click.echo(
+                    f"  imported={result['imported']} skipped={result['skipped']} replaced={result['replaced']} errors={result['errors']}"
+                )
+
+        # --- Tag ---
+        from maestro.db.models import Track
+
+        tracks = session.query(Track).all()
+        if tracks and not config.dry_run:
+            _write_tags_for_tracks(tracks)
+
+        # --- Artwork ---
+        if not config.dry_run and (config.artwork.download_album_art or config.artwork.download_fanart):
+            from maestro.db.models import Album, Artist
+
+            albums = session.query(Album).join(Artist, Album.artist_id == Artist.id).all()
+            if albums:
+                click.echo("Downloading artwork...")
+                api_key = _lastfm_api_key(config)
+                sources = config.artwork.sources
+                for album in albums:
+                    _process_artwork_album(album, config, api_key, sources)
+    finally:
+        session.close()
+
+
 def _resolve_db_path(database_path: str | None, ctx: click.Context) -> str:
     """Resolve the database path from options, env, or default."""
     if database_path is None and ctx.parent is not None:
@@ -129,21 +211,91 @@ def _setup(
     metavar="<path>",
     help="Path to log file. Falls back to a default path under the project root.",
 )
+@click.option(
+    "--daemon",
+    is_flag=True,
+    default=False,
+    help="Start the daemon (scheduled pipeline execution).",
+)
+@click.option(
+    "--download-path",
+    type=click.Path(exists=True, file_okay=False, resolve_path=True),
+    required=False,
+    default=None,
+    metavar="<dir>",
+    help="Path to a download directory to scan and import (overrides config).",
+)
+@click.option(
+    "--library-path",
+    type=click.Path(file_okay=False, resolve_path=True),
+    required=False,
+    default=None,
+    metavar="<dir>",
+    help="Path to the music library directory (overrides config).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Simulate the pipeline without making changes.",
+)
 @click.pass_context
 @click.version_option(version=_VERSION, prog_name="maestro")
-def cli(ctx: click.Context, **kwargs: object) -> None:
+def cli(
+    ctx: click.Context,
+    daemon: bool,
+    download_path: str | None,
+    library_path: str | None,
+    dry_run: bool,
+    **kwargs: object,
+) -> None:
     """Maestro - Organise and manage your music library.
 
-    Maestro scans your music directories, analyses metadata, and helps
-    organise your collection by fixing tags, renaming files, and
-    detecting duplicates.
+    Maestro scans your music directories, analyses metadata, organises
+    your collection, writes ID3 tags, and downloads album artwork.
+
+    Run without subcommand to use the all-in-one pipeline:
+
+        maestro --download-path <dir> --library-path <dir>
+
+    Or run a subcommand for fine-grained control:
+
+        maestro scan
+        maestro identify
+        maestro import
+        maestro tag
+        maestro artwork
+        maestro daemon
     """
-    # All options are consumed by subcommands via _setup(); the **kwargs
-    # catch-all is deliberate to avoid unused-argument warnings.
     del kwargs
     if ctx.invoked_subcommand is None:
-        # Ensure default config file is created on first invocation
         load_config()
+
+        if daemon:
+            from maestro.daemon import Daemon
+
+            config = load_config()
+            click.echo("Starting Maestro daemon...")
+            daemon_instance = Daemon(config)
+            daemon_instance.run()
+            return
+
+        if download_path or library_path:
+            config = load_config()
+            config.dry_run = dry_run or config.dry_run
+
+            if download_path:
+                from maestro.config import RootEntry
+
+                config.download_roots = [RootEntry(path=download_path, type="download", enabled=True)]
+            if library_path:
+                from maestro.config import RootEntry
+
+                config.library_roots = [RootEntry(path=library_path, type="library", enabled=True)]
+
+            _run_pipeline_inline(config, dry_run)
+            return
+
         click.echo(ctx.get_help())
 
 
@@ -305,15 +457,34 @@ def check(ctx: click.Context) -> None:
     default=False,
     help="Simulate import without making changes.",
 )
+@click.option(
+    "--tag",
+    is_flag=True,
+    default=False,
+    help="Write ID3 tags on imported tracks after import.",
+)
+@click.option(
+    "--artwork",
+    is_flag=True,
+    default=False,
+    help="Download album art and fanart after import.",
+)
+@click.option(
+    "--all",
+    "run_all",
+    is_flag=True,
+    default=False,
+    help="Full pipeline: scan, identify, import, tag, and download artwork.",
+)
 @click.pass_context
-def import_(ctx: click.Context, dry_run: bool) -> None:
+def import_(ctx: click.Context, dry_run: bool, tag: bool, artwork: bool, run_all: bool) -> None:
     """Import identified downloads into the music library.
 
     Automatically scans download roots and identifies new downloads
-    before importing, so a single ``maestro import`` is equivalent to
-    running ``maestro scan`` + ``maestro identify`` + ``maestro import``
-    in sequence.
+    before importing.  Use ``--all`` to also tag imported tracks and
+    download album art / fanart in a single run.
     """
+    from maestro.db.models import Album, Artist, Track
     from maestro.identifier import identify_downloads
     from maestro.organizer import import_downloads
     from maestro.scanner import scan_download_root
@@ -321,6 +492,8 @@ def import_(ctx: click.Context, dry_run: bool) -> None:
     config, _engine, session = _setup(ctx)
     try:
         effective_dry_run = dry_run or config.dry_run
+        run_tag = tag or run_all
+        run_artwork = artwork or run_all
 
         # --- 1. Auto-scan download roots ---
         download_roots = [r for r in config.download_roots if r.enabled]
@@ -333,8 +506,7 @@ def import_(ctx: click.Context, dry_run: bool) -> None:
                     pattern=getattr(entry, "pattern", None),
                 )
                 click.echo(
-                    f"  created={scan_result.get('created', 0)} "
-                    f"skipped={scan_result.get('skipped', 0)}",
+                    f"  created={scan_result.get('created', 0)} skipped={scan_result.get('skipped', 0)}",
                 )
             except Exception:
                 click.echo(f"  Error scanning {entry.path}", err=True)
@@ -353,7 +525,6 @@ def import_(ctx: click.Context, dry_run: bool) -> None:
 
         lib_root = library_roots[0]
         dest_pattern = lib_root.destination_pattern or "{artist}/{album}/{filename}.{ext}"
-        effective_dry_run = dry_run or config.dry_run
 
         click.echo(f"Importing downloads into {lib_root.path}...")
         result = import_downloads(
@@ -380,6 +551,23 @@ def import_(ctx: click.Context, dry_run: bool) -> None:
                 f"replaced={result['replaced']} "
                 f"errors={result['errors']}",
             )
+
+        # --- 4. Tag phase (optional) ---
+        if run_tag and not effective_dry_run:
+            tracks = session.query(Track).all()
+            if tracks:
+                _write_tags_for_tracks(tracks)
+
+        # --- 5. Artwork phase (optional) ---
+        if run_artwork and not effective_dry_run:
+            if config.artwork.download_album_art or config.artwork.download_fanart:
+                api_key = _lastfm_api_key(config)
+                sources = config.artwork.sources
+                albums = session.query(Album).join(Artist, Album.artist_id == Artist.id).all()
+                if albums:
+                    click.echo("Downloading artwork...")
+                    for album in albums:
+                        _process_artwork_album(album, config, api_key, sources)
     finally:
         session.close()
 
