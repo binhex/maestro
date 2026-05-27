@@ -74,18 +74,23 @@ def _run_pipeline_inline(config: Config, dry_run: bool) -> None:
             try:
                 scan_result = scan_download_root(session, entry.path)
                 click.echo(f"  created={scan_result.get('created', 0)} skipped={scan_result.get('skipped', 0)}")
-            except Exception:
-                click.echo(f"  Error scanning {entry.path}", err=True)
+            except Exception as exc:
+                click.echo(f"  Error scanning {entry.path}: {exc}", err=True)
 
         # --- Identify ---
         if download_roots:
-            identified = identify_downloads(session)
-            if identified:
-                click.echo(f"Identified {len(identified)} download(s).")
+            try:
+                identified = identify_downloads(session)
+                if identified:
+                    click.echo(f"Identified {len(identified)} download(s).")
+            except Exception:
+                click.echo("Error during identification phase.", err=True)
 
         # --- Import ---
         library_roots = [r for r in config.library_roots if r.enabled]
-        if library_roots:
+        if not library_roots:
+            click.echo("No enabled library roots in config.")
+        else:
             lib_root = library_roots[0]
             dest_pattern = lib_root.destination_pattern or "{artist}/{album}/{filename}.{ext}"
             click.echo(f"Importing downloads into {lib_root.path}...")
@@ -93,7 +98,7 @@ def _run_pipeline_inline(config: Config, dry_run: bool) -> None:
                 session=session,
                 destination_root=lib_root.path,
                 destination_pattern=dest_pattern,
-                move=not config.dry_run,
+                move=True,
                 delete_replaced=config.quality.delete_replaced,
                 dry_run=config.dry_run,
             )
@@ -269,19 +274,20 @@ def cli(
     """
     del kwargs
     if ctx.invoked_subcommand is None:
-        load_config()
+        config = load_config()
 
         if daemon:
             from maestro.daemon import Daemon
 
-            config = load_config()
             click.echo("Starting Maestro daemon...")
             daemon_instance = Daemon(config)
             daemon_instance.run()
             return
 
         if download_path or library_path:
-            config = load_config()
+            from maestro.logger import create_logger
+
+            create_logger(log_format=_DEFAULT_LOG_FORMAT)
             config.dry_run = dry_run or config.dry_run
 
             if download_path:
@@ -294,6 +300,9 @@ def cli(
                 config.library_roots = [RootEntry(path=library_path, type="library", enabled=True)]
 
             _run_pipeline_inline(config, dry_run)
+            return
+
+        if daemon or download_path or library_path:
             return
 
         click.echo(ctx.get_help())
@@ -508,8 +517,8 @@ def import_(ctx: click.Context, dry_run: bool, tag: bool, artwork: bool, run_all
                 click.echo(
                     f"  created={scan_result.get('created', 0)} skipped={scan_result.get('skipped', 0)}",
                 )
-            except Exception:
-                click.echo(f"  Error scanning {entry.path}", err=True)
+            except Exception as exc:
+                click.echo(f"  Error scanning {entry.path}: {exc}", err=True)
 
         # --- 2. Auto-identify new downloads ---
         if download_roots:
