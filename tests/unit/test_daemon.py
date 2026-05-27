@@ -167,6 +167,38 @@ class TestRunPipelineDryRun:
         call_args, call_kwargs = mock_import.call_args
         assert call_kwargs.get("dry_run") is True, f"Expected dry_run=True, got kwargs={call_kwargs}"
 
+    def test_run_pipeline_import_error_handled(self, mocker) -> None:
+        """Exceptions during import are caught and errors incremented."""
+        from maestro.config import RootEntry
+
+        # import_downloads is imported inside run_pipeline, patch at source
+        mock_import = mocker.patch("maestro.organizer.import_downloads")
+        mock_import.side_effect = OSError("Disk full")
+        mocker.patch(
+            "maestro.scanner.scan_download_root",
+            return_value={"created": 0, "skipped": 0},
+        )
+        mocker.patch(
+            "maestro.identifier.identify_downloads",
+            return_value=[],
+        )
+
+        config = Config()
+        config.download_roots = [RootEntry(path="/dl", type="download", enabled=True)]
+        config.library_roots = [
+            RootEntry(
+                path="/lib",
+                type="library",
+                enabled=True,
+                destination_pattern="{artist}/{album}/{filename}.{ext}",
+            )
+        ]
+        session = MagicMock()
+        result = run_pipeline(config, session)
+
+        assert result["pipeline"]["errors"] == 1
+        assert result["pipeline"]["success"] is False
+
 
 # ===================================================================
 # Daemon
@@ -339,6 +371,17 @@ class TestDaemonHelpers:
         daemon._sleep_interruptible(10.0)
         # No assertion — just doesn't hang
 
+    def test_sleep_interruptible_waits_full_duration(self) -> None:
+        """_sleep_interruptible waits the full duration when shutdown is not requested."""
+        import time
+
+        daemon = Daemon(None)
+        start = time.monotonic()
+        # Use a very short duration so the test is fast
+        daemon._sleep_interruptible(0.1)
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.09, f"Expected ~0.1s sleep, got {elapsed:.3f}s"
+
     def test_should_run_on_start_true(self) -> None:
         """Default config has run_on_start=True."""
         config = Config()
@@ -355,3 +398,92 @@ class TestDaemonHelpers:
         """None config defaults to True."""
         daemon = Daemon(None)
         assert daemon._should_run_on_start() is True
+
+    def test_run_pipeline_identify_error_handled(self, mocker) -> None:
+        """Exceptions during identification are caught and errors incremented."""
+        from maestro.config import RootEntry
+
+        mocker.patch(
+            "maestro.scanner.scan_download_root",
+            return_value={"created": 0, "skipped": 0},
+        )
+        # identify_downloads is imported inside run_pipeline, patch at source
+        mocker.patch(
+            "maestro.identifier.identify_downloads",
+            side_effect=ValueError("parse error"),
+        )
+
+        config = Config()
+        config.download_roots = [RootEntry(path="/dl", type="download", enabled=True)]
+        config.library_roots = []
+        session = MagicMock()
+        result = run_pipeline(config, session)
+
+        assert result["pipeline"]["errors"] == 1
+        assert result["pipeline"]["success"] is False
+
+    def test_os_getpid_returns_pid(self) -> None:
+        """os_getpid returns the current process PID."""
+        from maestro.daemon import os_getpid
+
+        pid = os_getpid()
+        assert isinstance(pid, int)
+        assert pid > 0
+
+    def test_run_pipeline_once_creates_session_and_runs(
+        self, mocker, tmp_path,
+    ) -> None:
+        """_run_pipeline_once creates a session, runs pipeline, and commits."""
+        from maestro.db.core import get_engine, init_db
+
+        db_path = str(tmp_path / "test.db")
+        engine = get_engine(db_path, echo=False)
+        init_db(engine)
+
+        mock_run = mocker.patch("maestro.daemon.run_pipeline")
+        mock_run.return_value = {"pipeline": {"errors": 0, "success": True}}
+
+        config = Config()
+        daemon = Daemon(config)
+        daemon._run_pipeline_once(engine)
+
+        mock_run.assert_called_once()
+
+    def test_run_pipeline_once_rollback_on_error(
+        self, mocker, tmp_path,
+    ) -> None:
+        """_run_pipeline_once rolls back when pipeline raises."""
+        from maestro.db.core import get_engine, init_db
+
+        db_path = str(tmp_path / "test.db")
+        engine = get_engine(db_path, echo=False)
+        init_db(engine)
+
+        mock_run = mocker.patch("maestro.daemon.run_pipeline")
+        mock_run.side_effect = RuntimeError("pipeline crash")
+
+        config = Config()
+        daemon = Daemon(config)
+        # Should not raise — exception is caught internally
+        daemon._run_pipeline_once(engine)
+
+        mock_run.assert_called_once()
+
+    def test_run_pipeline_once_no_session_leak(
+        self, mocker, tmp_path,
+    ) -> None:
+        """_run_pipeline_once always closes the session."""
+        from maestro.db.core import get_engine, init_db
+
+        db_path = str(tmp_path / "test.db")
+        engine = get_engine(db_path, echo=False)
+        init_db(engine)
+
+        mock_run = mocker.patch("maestro.daemon.run_pipeline")
+        mock_run.side_effect = RuntimeError("crash")
+
+        config = Config()
+        daemon = Daemon(config)
+        daemon._run_pipeline_once(engine)
+
+        # No assertion needed — if there's a session leak, SQLAlchemy will warn

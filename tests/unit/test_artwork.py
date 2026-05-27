@@ -1057,3 +1057,29 @@ class TestDownloadArtworkForAlbumDisable:
         assert result["album_art"] is None
         assert result["fanart"] is None
         assert result["source_used"] is None
+
+    def test_download_artwork_duckduckgo_source_skipped_when_missing(
+        self, tmp_path, mocker,
+    ) -> None:
+        """When DDGS is not available and duckduckgo is a source, it's skipped gracefully."""
+        import maestro.artwork as art_mod
+
+        original = art_mod.DDGS
+        art_mod.DDGS = None
+        try:
+            album_dir = tmp_path / "artist" / "album"
+            album_dir.mkdir(parents=True)
+
+            result = art_mod.download_artwork_for_album(
+                album_dir=str(album_dir),
+                artist="Test Artist",
+                album="Test Album",
+                download_album_art=True,
+                download_fanart=False,
+                sources=["duckduckgo", "musicbrainz"],
+            )
+            # Should not crash; should try musicbrainz after duckduckgo skip
+            assert isinstance(result, dict)
+            assert "album_art" in result
+        finally:
+            art_mod.DDGS = original
