@@ -1000,3 +1000,62 @@ class TestDownloadArtworkForAlbum:
         assert result["album_art"] is True
         assert result["source_used"] == "duckduckgo"
         mock_mb.assert_not_called()
+
+
+# ===================================================================
+# download_artwork_for_album — disable flags
+# ===================================================================
+
+
+class TestDownloadArtworkForAlbumDisable:
+    """Tests for the download_album_art / download_fanart disable flags."""
+
+    def test_disable_album_art_returns_none(self, tmp_path) -> None:
+        """When download_album_art is False, album_art in result should be None."""
+        album_dir = tmp_path / "artist" / "album"
+        album_dir.mkdir(parents=True)
+
+        result = download_artwork_for_album(
+            album_dir=str(album_dir),
+            artist="Test Artist",
+            album="Test Album",
+            download_album_art=False,
+            download_fanart=True,
+        )
+
+        assert result["album_art"] is None
+        assert result["source_used"] is None
+
+    def test_disable_fanart_returns_none(self, tmp_path) -> None:
+        """When download_fanart is False, fanart in result should be None."""
+        album_dir = tmp_path / "artist" / "album"
+        album_dir.mkdir(parents=True)
+
+        result = download_artwork_for_album(
+            album_dir=str(album_dir),
+            artist="Test Artist",
+            album="Test Album",
+            download_album_art=True,
+            download_fanart=False,
+        )
+
+        assert result["fanart"] is None
+
+    def test_disable_both_returns_early(self, tmp_path) -> None:
+        """When both are False, should log and return no artwork."""
+        album_dir = tmp_path / "artist" / "album"
+        album_dir.mkdir(parents=True)
+
+        result = download_artwork_for_album(
+            album_dir=str(album_dir),
+            artist="Test Artist",
+            album="Test Album",
+            download_album_art=False,
+            download_fanart=False,
+        )
+
+        assert result["album_art"] is None
+        assert result["fanart"] is None
+        assert result["source_used"] is None
+
+

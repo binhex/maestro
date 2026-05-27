@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import requests
+from loguru import logger
 
 try:
     from ddgs import DDGS  # noqa: TC002
@@ -277,6 +278,8 @@ def download_artwork_for_album(
     album: str,
     album_art_filename: str = "cover.jpg",
     fanart_filename: str = "fanart.jpg",
+    download_album_art: bool = True,
+    download_fanart: bool = True,
     lastfm_api_key: str | None = None,
     sources: list[str] | None = None,
     max_width: int = 500,
@@ -298,14 +301,17 @@ def download_artwork_for_album(
         lastfm_api_key: Last.fm API key (optional).
         sources: Ordered list of source names to try.
             Default: ``['musicbrainz', 'lastfm']``.
+        download_album_art: If ``False``, album art is not downloaded.
+        download_fanart: If ``False``, fanart is not downloaded.
         max_width: Target width for resizing (images too small or wrong
             aspect ratio are rejected).
         max_height: Target height for resizing.
 
     Returns:
-        Dict with keys ``'album_art'`` (bool), ``'fanart'`` (bool),
+        Dict with keys ``'album_art'`` (bool or None), ``'fanart'`` (bool or None),
         and ``'source_used'`` (str or None) indicating which source
-        provided the album art.
+        provided the album art. When a download flag is disabled, the
+        corresponding key is set to ``None``.
     """
     result: dict[str, bool | str | None] = {
         "album_art": False,
@@ -322,8 +328,16 @@ def download_artwork_for_album(
     if sources is None:
         sources = ["musicbrainz", "lastfm"]
 
+    # Early exit if all artwork is disabled
+    if not download_album_art and not download_fanart:
+        logger.info("Artwork downloading disabled for '{} — {}'", artist, album)
+        return {"album_art": None, "fanart": None, "source_used": None}
+
     # Try to fetch album art from configured sources in order
-    if album_art_path.exists():
+    if not download_album_art:
+        result["album_art"] = None
+        result["source_used"] = None
+    elif album_art_path.exists():
         result["album_art"] = True
         result["source_used"] = "cached"
     else:
@@ -346,7 +360,9 @@ def download_artwork_for_album(
                     break
 
     # Try to fetch fanart from Last.fm (only if API key is available)
-    if fanart_path.exists():
+    if not download_fanart:
+        result["fanart"] = None
+    elif fanart_path.exists():
         result["fanart"] = True
     elif lastfm_api_key:
         data = fetch_fanart_lastfm(artist, lastfm_api_key)
