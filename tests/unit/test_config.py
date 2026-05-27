@@ -144,6 +144,20 @@ class TestLoadConfig:
         config = load_config(config_path, create_default=True)
         assert isinstance(config, Config)
 
+    def test_load_config_with_dry_run_true(self, tmp_path: Path) -> None:
+        """Loading a YAML file with dry_run: true should preserve the value."""
+        config_data = {
+            "dry_run": True,
+            "library_roots": [],
+            "quality": {"min_acceptable": 3},
+            "scheduler": {"schedule": "0 3 * * *"},
+        }
+        config_path = tmp_path / "maestro.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config_data, f)
+        config = load_config(str(config_path))
+        assert config.dry_run is True
+
     def test_config_with_download_roots(self, tmp_path: Path) -> None:
         config_data = {
             "download_roots": [

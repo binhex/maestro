@@ -104,6 +104,7 @@ class Config:
             quality=quality,
             artwork=artwork,
             scheduler=scheduler,
+            dry_run=data.get("dry_run", False),
         )
 
 
