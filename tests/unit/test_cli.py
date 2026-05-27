@@ -1000,10 +1000,10 @@ class TestTopLevelUnifiedPipeline:
     @patch("maestro.cli.init_db")
     def test_maestro_runs_pipeline_from_config_roots(
         self,
-        mock_init_db: Mock,
-        mock_get_engine: Mock,
+        mock_init_db: Mock,  # noqa: ARG002
+        mock_get_engine: Mock,  # noqa: ARG002
+        mock_create_session: Mock,  # noqa: ARG002
         mock_load_config: Mock,
-        mock_create_session: Mock,
     ) -> None:
         """Running bare ``maestro`` should run the pipeline when roots exist in config."""
         from maestro.config import Config, RootEntry

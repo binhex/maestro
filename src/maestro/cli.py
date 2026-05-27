@@ -72,7 +72,7 @@ def _run_pipeline_inline(config: Config, dry_run: bool, db_path: str | None = No
         for entry in download_roots:
             click.echo(f"Scanning download root {entry.path}...")
             try:
-                scan_result = scan_download_root(session, entry.path)
+                scan_result = scan_download_root(session, entry.path, pattern=entry.pattern)
                 click.echo(f"  created={scan_result.get('created', 0)} skipped={scan_result.get('skipped', 0)}")
             except Exception as exc:
                 click.echo(f"  Error scanning {entry.path}: {exc}", err=True)
@@ -288,7 +288,7 @@ def cli(
             return
 
         has_cli_paths = bool(download_path or library_path)
-        has_config_roots = bool(config.download_roots or config.library_roots)
+        has_config_roots = bool([r for r in config.download_roots if r.enabled] or [r for r in config.library_roots if r.enabled])
 
         if has_cli_paths or has_config_roots:
             from maestro.logger import create_logger
