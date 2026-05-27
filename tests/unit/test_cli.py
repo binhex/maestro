@@ -1020,3 +1020,430 @@ class TestCliConfigDisplay:
             assert "Dry run" in result.output
             assert "download album art" in result.output.lower() or "download_album_art" in result.output
             assert "download fanart" in result.output.lower() or "download_fanart" in result.output
+
+
+class TestImportScanError:
+    """Tests for scan error handling in the import command (lines 511-512)."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    @patch("maestro.cli.load_config")
+    @patch("maestro.cli.get_engine")
+    def test_import_scan_error_handled(
+        self,
+        mock_get_engine: Mock,
+        mock_load_config: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """When scan_download_root raises, import should catch and report the error."""
+        from maestro.config import Config, RootEntry
+
+        dl_root = tmp_path / "downloads"
+        dl_root.mkdir()
+        config = Config(
+            download_roots=[RootEntry(path=str(dl_root), type="download", enabled=True)],
+            library_roots=[RootEntry(path=str(tmp_path / "library"), type="library", enabled=True)],
+        )
+        config.dry_run = False
+        mock_load_config.return_value = config
+
+        from maestro.db.core import create_session, get_engine, init_db
+
+        db_path = str(tmp_path / "test.db")
+        engine = get_engine(db_path, echo=False)
+        init_db(engine)
+        session = create_session(engine)
+        mock_get_engine.return_value = engine
+
+        with (
+            patch("maestro.cli.create_session", return_value=session),
+            patch("maestro.scanner.scan_download_root", side_effect=PermissionError("denied")),
+            patch("maestro.identifier.identify_downloads"),
+            patch("maestro.organizer.import_downloads"),
+        ):
+            result = self.runner.invoke(cli, ["import"])
+            assert "Error scanning" in result.output
+
+
+class TestTopLevelDaemon:
+    """Tests for ``maestro --daemon`` (top-level daemon invocation, lines 274-281)."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    def test_top_level_daemon_starts(self) -> None:
+        """--daemon flag should start the daemon."""
+        mock_daemon_instance = Mock()
+        mock_daemon_class = Mock(return_value=mock_daemon_instance)
+
+        with (
+            patch("maestro.cli.load_config", return_value=Mock()),
+            patch("maestro.daemon.Daemon", mock_daemon_class),
+        ):
+            result = self.runner.invoke(cli, ["--daemon"])
+            assert result.exit_code == 0
+            assert "Starting Maestro daemon" in result.output
+            mock_daemon_class.assert_called_once()
+            mock_daemon_instance.run.assert_called_once()
+
+
+class TestRunPipelineInline:
+    """Tests for _run_pipeline_inline, invoked via --download-path/--library-path
+    (lines 56-129 and 283-297)."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    @patch("maestro.db.core.get_engine")
+    @patch("maestro.db.core.init_db")
+    @patch("maestro.db.core.create_session")
+    @patch("maestro.scanner.scan_download_root")
+    @patch("maestro.identifier.identify_downloads")
+    @patch("maestro.organizer.import_downloads")
+    @patch("maestro.cli.load_config")
+    def test_pipeline_happy_path(
+        self,
+        mock_load_config: Mock,
+        mock_import: Mock,
+        mock_identify: Mock,
+        mock_scan: Mock,
+        mock_create_session: Mock,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Full pipeline: scan, identify, import, tag, artwork all run."""
+        from maestro.config import Config, RootEntry
+
+        dl_root = tmp_path / "downloads"
+        dl_root.mkdir()
+        lib_root = tmp_path / "library"
+        lib_root.mkdir()
+
+        config = Config(
+            download_roots=[RootEntry(path=str(dl_root), type="download", enabled=True)],
+            library_roots=[RootEntry(path=str(lib_root), type="library", enabled=True)],
+        )
+        config.dry_run = False
+        config.artwork.download_album_art = True
+        config.artwork.download_fanart = False
+        mock_load_config.return_value = config
+
+        mock_session = Mock()
+        mock_create_session.return_value = mock_session
+        mock_scan.return_value = {"created": 2, "skipped": 0}
+        mock_identify.return_value = [Mock(), Mock()]
+        mock_import.return_value = {
+            "imported": 2,
+            "skipped": 0,
+            "replaced": 0,
+            "errors": 0,
+        }
+
+        # Mock Track query to return tracks (triggers tag phase)
+        mock_track = Mock()
+        mock_track.file_path = str(tmp_path / "track.flac")
+        mock_track.album = Mock()
+        mock_track.album.artist = Mock()
+        mock_track.album.artist.name = "Artist"
+        mock_track.album.title = "Album"
+        mock_track.album.year = 2024
+        mock_track.album.genre = "Rock"
+        mock_track.title = "Track"
+        mock_track.track_number = 1
+
+        # Mock Album query for artwork phase
+        mock_album = Mock()
+        mock_album.artist = Mock()
+        mock_album.artist.name = "Artist"
+        mock_album.title = "Album"
+        mock_album.tracks = [mock_track]
+
+        def query_side_effect(model: object) -> Mock:
+            q = Mock()
+            q.join.return_value = q
+            name = getattr(model, "__name__", "")
+            if name == "Track":
+                q.all.return_value = [mock_track]
+            elif name == "Album":
+                q.join.return_value.all.return_value = [mock_album]
+            else:
+                q.all.return_value = []
+            return q
+
+        mock_session.query.side_effect = query_side_effect
+
+        with (
+            patch("maestro.cli._write_tags_for_tracks") as mock_write_tags,
+            patch("maestro.cli._process_artwork_album") as mock_artwork,
+        ):
+            result = self.runner.invoke(
+                cli,
+                [
+                    "--download-path",
+                    str(dl_root),
+                    "--library-path",
+                    str(lib_root),
+                ],
+            )
+            assert result.exit_code == 0, f"Output: {result.output}"
+            assert "Scanning download root" in result.output
+            assert mock_scan.called
+            assert mock_identify.called
+            assert mock_import.called
+            assert mock_write_tags.called
+            assert mock_artwork.called
+            mock_session.close.assert_called_once()
+
+    @patch("maestro.db.core.get_engine")
+    @patch("maestro.db.core.init_db")
+    @patch("maestro.db.core.create_session")
+    @patch("maestro.scanner.scan_download_root")
+    @patch("maestro.identifier.identify_downloads")
+    @patch("maestro.organizer.import_downloads")
+    @patch("maestro.cli.load_config")
+    def test_pipeline_dry_run(
+        self,
+        mock_load_config: Mock,
+        mock_import: Mock,
+        mock_identify: Mock,
+        mock_scan: Mock,
+        mock_create_session: Mock,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Dry-run pipeline: skips tag/artwork, shows dry-run output."""
+        from maestro.config import Config, RootEntry
+
+        dl_root = tmp_path / "downloads"
+        dl_root.mkdir()
+        lib_root = tmp_path / "library"
+        lib_root.mkdir()
+
+        config = Config(
+            download_roots=[RootEntry(path=str(dl_root), type="download", enabled=True)],
+            library_roots=[RootEntry(path=str(lib_root), type="library", enabled=True)],
+        )
+        config.dry_run = False
+        mock_load_config.return_value = config
+
+        mock_session = Mock()
+        mock_create_session.return_value = mock_session
+        mock_scan.return_value = {"created": 0, "skipped": 0}
+        mock_identify.return_value = []
+        mock_import.return_value = {
+            "imported": 0,
+            "skipped": 0,
+            "replaced": 0,
+            "errors": 0,
+            "actions": ["  /src/track.flac -> /dst/track.flac"],
+        }
+
+        def query_side_effect(model: object) -> Mock:
+            q = Mock()
+            q.join.return_value = q
+            name = getattr(model, "__name__", "")
+            if name == "Track":
+                q.all.return_value = [Mock()]
+            elif name == "Album":
+                q.join.return_value.all.return_value = []
+            else:
+                q.all.return_value = []
+            return q
+
+        mock_session.query.side_effect = query_side_effect
+
+        with (
+            patch("maestro.cli._write_tags_for_tracks") as mock_write_tags,
+            patch("maestro.cli._process_artwork_album") as mock_artwork,
+        ):
+            result = self.runner.invoke(
+                cli,
+                [
+                    "--download-path",
+                    str(dl_root),
+                    "--library-path",
+                    str(lib_root),
+                    "--dry-run",
+                ],
+            )
+            assert result.exit_code == 0, f"Output: {result.output}"
+            assert "DRY RUN" in result.output
+            assert "would import=0" in result.output
+            # Tag and artwork should NOT run in dry-run mode
+            assert not mock_write_tags.called
+            assert not mock_artwork.called
+            mock_session.close.assert_called_once()
+
+    @patch("maestro.db.core.get_engine")
+    @patch("maestro.db.core.init_db")
+    @patch("maestro.db.core.create_session")
+    @patch("maestro.scanner.scan_download_root")
+    @patch("maestro.identifier.identify_downloads")
+    @patch("maestro.organizer.import_downloads")
+    @patch("maestro.cli.load_config")
+    def test_pipeline_scan_error(
+        self,
+        mock_load_config: Mock,
+        mock_import: Mock,
+        mock_identify: Mock,
+        mock_scan: Mock,
+        mock_create_session: Mock,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """Error during scan should be caught and reported."""
+        from maestro.config import Config, RootEntry
+
+        dl_root = tmp_path / "downloads"
+        dl_root.mkdir()
+
+        config = Config(
+            download_roots=[RootEntry(path=str(dl_root), type="download", enabled=True)],
+            library_roots=[RootEntry(path=str(tmp_path / "library"), type="library", enabled=True)],
+        )
+        config.dry_run = False
+        config.artwork.download_album_art = False
+        config.artwork.download_fanart = False
+        mock_load_config.return_value = config
+
+        mock_session = Mock()
+        mock_create_session.return_value = mock_session
+        mock_scan.side_effect = PermissionError("denied")
+        mock_identify.return_value = []
+        mock_import.return_value = {
+            "imported": 0,
+            "skipped": 0,
+            "replaced": 0,
+            "errors": 0,
+        }
+
+        mock_session.query.return_value.all.return_value = []
+
+        with (
+            patch("maestro.cli._write_tags_for_tracks"),
+            patch("maestro.cli._process_artwork_album"),
+        ):
+            result = self.runner.invoke(
+                cli,
+                [
+                    "--download-path",
+                    str(dl_root),
+                    "--library-path",
+                    str(tmp_path / "library"),
+                ],
+            )
+            assert result.exit_code == 0, f"Output: {result.output}"
+            assert "Error scanning" in result.output
+            mock_session.close.assert_called_once()
+
+    @patch("maestro.db.core.get_engine")
+    @patch("maestro.db.core.init_db")
+    @patch("maestro.db.core.create_session")
+    @patch("maestro.organizer.import_downloads")
+    @patch("maestro.scanner.scan_download_root")
+    @patch("maestro.identifier.identify_downloads")
+    @patch("maestro.cli.load_config")
+    def test_pipeline_no_download_roots(
+        self,
+        mock_load_config: Mock,
+        mock_identify: Mock,
+        mock_scan: Mock,
+        mock_import: Mock,
+        mock_create_session: Mock,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """With no download roots, scan/identify skipped; import still runs with --library-path."""
+        from maestro.config import Config, RootEntry
+
+        lib_root = tmp_path / "library"
+        lib_root.mkdir()
+
+        config = Config(
+            download_roots=[],
+            library_roots=[],
+        )
+        config.dry_run = False
+        config.artwork.download_album_art = False
+        config.artwork.download_fanart = False
+        mock_load_config.return_value = config
+
+        mock_session = Mock()
+        mock_create_session.return_value = mock_session
+        mock_import.return_value = {
+            "imported": 0,
+            "skipped": 0,
+            "replaced": 0,
+            "errors": 0,
+        }
+        mock_session.query.return_value.all.return_value = []
+
+        result = self.runner.invoke(
+            cli,
+            [
+                "--library-path",
+                str(lib_root),
+            ],
+        )
+        assert result.exit_code == 0, f"Output: {result.output}"
+        # No download roots → scan/identify not called
+        assert not mock_scan.called
+        assert not mock_identify.called
+        # --library-path sets a library root → import runs
+        assert mock_import.called
+        mock_session.close.assert_called_once()
+
+    @patch("maestro.db.core.get_engine")
+    @patch("maestro.db.core.init_db")
+    @patch("maestro.db.core.create_session")
+    @patch("maestro.scanner.scan_download_root")
+    @patch("maestro.identifier.identify_downloads")
+    @patch("maestro.cli.load_config")
+    def test_pipeline_no_library_roots(
+        self,
+        mock_load_config: Mock,
+        mock_identify: Mock,
+        mock_scan: Mock,
+        mock_create_session: Mock,
+        mock_init_db: Mock,
+        mock_get_engine: Mock,
+        tmp_path: Path,
+    ) -> None:
+        """With no library roots, import phase is skipped."""
+        from maestro.config import Config, RootEntry
+
+        dl_root = tmp_path / "downloads"
+        dl_root.mkdir()
+
+        config = Config(
+            download_roots=[RootEntry(path=str(dl_root), type="download", enabled=True)],
+            library_roots=[],
+        )
+        config.dry_run = False
+        config.artwork.download_album_art = False
+        config.artwork.download_fanart = False
+        mock_load_config.return_value = config
+
+        mock_session = Mock()
+        mock_create_session.return_value = mock_session
+        mock_scan.return_value = {"created": 0, "skipped": 0}
+        mock_identify.return_value = []
+        mock_session.query.return_value.all.return_value = []
+
+        with patch("maestro.organizer.import_downloads") as mock_import:
+            result = self.runner.invoke(
+                cli,
+                [
+                    "--download-path",
+                    str(dl_root),
+                ],
+            )
+            assert result.exit_code == 0, f"Output: {result.output}"
+            assert "Importing downloads" not in result.output
+            assert not mock_import.called
+            mock_session.close.assert_called_once()
