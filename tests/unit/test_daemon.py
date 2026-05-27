@@ -131,6 +131,41 @@ class TestRunPipeline:
         assert len(result["scan"]) == 0
 
 
+class TestRunPipelineDryRun:
+    """Tests for dry_run threading in run_pipeline."""
+
+    def test_run_pipeline_passes_dry_run_to_import(self, mocker) -> None:
+        """When config.dry_run is True, import_downloads should receive it."""
+        from maestro.config import RootEntry
+
+        mock_import = mocker.patch("maestro.organizer.import_downloads")
+        mocker.patch(
+            "maestro.scanner.scan_download_root",
+            return_value={"created": 0, "skipped": 0},
+        )
+        mocker.patch(
+            "maestro.identifier.identify_downloads",
+            return_value=[],
+        )
+
+        config = Config(dry_run=True)
+        config.download_roots = [RootEntry(path="/dl", type="download", enabled=True)]
+        config.library_roots = [RootEntry(
+            path="/lib", type="library", enabled=True,
+            destination_pattern="{artist}/{album}",
+        )]
+        config.quality.delete_replaced = False
+
+        session = MagicMock()
+        run_pipeline(config, session)
+
+        assert mock_import.called, "import_downloads should have been called"
+        call_args, call_kwargs = mock_import.call_args
+        assert call_kwargs.get("dry_run") is True, (
+            f"Expected dry_run=True, got kwargs={call_kwargs}"
+        )
+
+
 # ===================================================================
 # Daemon
 # ===================================================================

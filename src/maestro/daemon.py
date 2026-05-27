@@ -148,6 +148,7 @@ def run_pipeline(config: Config | None, session: Any) -> dict[str, Any]:
                 destination_pattern=dest_pattern,
                 move=True,
                 delete_replaced=config.quality.delete_replaced,
+                dry_run=config.dry_run,
             )
             result["imported"] = import_result
             logger.info("Imported: {}", import_result)
