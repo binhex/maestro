@@ -154,6 +154,74 @@ def _is_audio_file(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _simulate_imports(
+    session: Session,
+    downloads: list[Download],
+    dest_root: Path,
+    destination_pattern: str,
+) -> dict[str, Any]:
+    """Simulate imports for dry-run mode, returning action descriptions."""
+    actions: list[str] = []
+    for dl in downloads:
+        source = Path(dl.source_path)
+        if not source.is_dir():
+            actions.append(f"Would skip: {source} (source directory missing)")
+            continue
+
+        artist_name = dl.identified_artist or "Unknown Artist"
+        album_title = dl.identified_album or source.name
+        audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
+        if not audio_files:
+            actions.append(f"Would skip: {source} (no audio files)")
+            continue
+
+        if dl.identified_album_id is not None:
+            existing_album = session.get(Album, dl.identified_album_id)
+            if existing_album and existing_album.tracks:
+                skip_count = 0
+                for afile in audio_files:
+                    track_key = afile.stem.lower()
+                    for t in existing_album.tracks:
+                        if t.file_path and Path(t.file_path).stem.lower() == track_key and t.format:
+                            decision = compare_tracks(
+                                (t.format, t.bitrate),
+                                (afile.suffix.lstrip(".").upper(), None),
+                            )
+                            if decision == "skip":
+                                skip_count += 1
+                                break
+                if skip_count == len(audio_files):
+                    actions.append(f"Would skip: {source.name} (all tracks equal/better quality in library)")
+                    continue
+
+        for afile in audio_files:
+            stem = _fs_safe(afile.stem)
+            ext = afile.suffix.lstrip(".")
+            variables: dict[str, str] = {
+                "artist": artist_name or "",
+                "album": album_title or "",
+                "filename": stem,
+                "ext": ext,
+                "year": str(dl.identified_year) if dl.identified_year else "",
+                "genre": dl.identified_genre or "",
+            }
+            relative_path = render_path(variables, destination_pattern)
+            full_target = (dest_root / relative_path).resolve()
+            if full_target.exists():
+                actions.append(f"Would replace: {afile} → {full_target}")
+            else:
+                actions.append(f"Would move: {afile} → {full_target}")
+
+    return {
+        "imported": 0,
+        "skipped": 0,
+        "replaced": 0,
+        "errors": 0,
+        "dry_run": True,
+        "actions": actions,
+    }
+
+
 def import_downloads(
     session: Session,
     destination_root: str,
@@ -211,68 +279,10 @@ def import_downloads(
 
     if not downloads:
         logger.info("No identified downloads to import")
-        if dry_run:
-            counts["dry_run"] = True
-            counts["actions"] = []
-        return counts
+        return {"imported": 0, "skipped": 0, "replaced": 0, "errors": 0, **({"dry_run": True, "actions": []} if dry_run else {})}  # noqa: E501
 
-    # DRY RUN MODE — simulate without mutating files or database
     if dry_run:
-        actions: list[str] = []
-        for dl in downloads:
-            source = Path(dl.source_path)
-            if not source.is_dir():
-                actions.append(f"Would skip: {source} (source directory missing)")
-                continue
-
-            artist_name = dl.identified_artist or "Unknown Artist"
-            album_title = dl.identified_album or source.name
-            audio_files = sorted(f for f in source.iterdir() if f.is_file() and _is_audio_file(f))
-            if not audio_files:
-                actions.append(f"Would skip: {source} (no audio files)")
-                continue
-
-            # Check quality against existing album
-            if dl.identified_album_id is not None:
-                existing_album = session.get(Album, dl.identified_album_id)
-                if existing_album and existing_album.tracks:
-                    skip_count = 0
-                    for afile in audio_files:
-                        track_key = afile.stem.lower()
-                        for t in existing_album.tracks:
-                            if t.file_path and Path(t.file_path).stem.lower() == track_key and t.format:
-                                decision = compare_tracks(
-                                    (t.format, t.bitrate),
-                                    (afile.suffix.lstrip(".").upper(), None),
-                                )
-                                if decision == "skip":
-                                    skip_count += 1
-                                    break
-                    if skip_count == len(audio_files):
-                        actions.append(f"Would skip: {source.name} (all tracks equal/better quality in library)")
-                        continue
-
-            for afile in audio_files:
-                stem = _fs_safe(afile.stem)
-                ext = afile.suffix.lstrip(".")
-                variables: dict[str, str] = {
-                    "artist": artist_name or "",
-                    "album": album_title or "",
-                    "filename": stem,
-                    "ext": ext,
-                    "year": str(dl.identified_year) if dl.identified_year else "",
-                    "genre": dl.identified_genre or "",
-                }
-                relative_path = render_path(variables, destination_pattern)
-                full_target = (dest_root / relative_path).resolve()
-                if full_target.exists():
-                    actions.append(f"Would replace: {afile} \u2192 {full_target}")
-                else:
-                    actions.append(f"Would move: {afile} \u2192 {full_target}")
-
-        counts["dry_run"] = True
-        counts["actions"] = actions
-        return counts
+        return _simulate_imports(session, downloads, dest_root, destination_pattern)
 
     for dl in downloads:
         try:
