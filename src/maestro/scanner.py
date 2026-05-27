@@ -70,6 +70,25 @@ def _album_dir_for_file(file_path: Path) -> Path:
     return parent
 
 
+def _create_download_snapshot(session: Session, afile: Path) -> None:
+    """Create a FileSystemSnapshot for *afile* if one does not already exist."""
+    existing_snap = (
+        session.query(FileSystemSnapshot)
+        .filter(FileSystemSnapshot.path == str(afile))
+        .first()
+    )
+    if existing_snap is not None:
+        return
+    file_stat = afile.stat()
+    snapshot = FileSystemSnapshot(
+        path=str(afile),
+        file_hash=_get_file_hash(afile),
+        file_size=file_stat.st_size,
+        modified_at=datetime.fromtimestamp(file_stat.st_mtime, tz=UTC),
+    )
+    session.add(snapshot)
+
+
 def scan_download_root(
     session: Session,
     root_path: str | Path,
@@ -109,8 +128,6 @@ def scan_download_root(
         if not fpath.is_file() or not _is_audio_file(fpath):
             continue
         album_dir = _album_dir_for_file(fpath)
-        # Skip files whose album directory is the scan root itself (no
-        # meaningful album grouping).
         if album_dir == root:
             continue
         album_files.setdefault(album_dir, []).append(fpath)
@@ -133,28 +150,10 @@ def scan_download_root(
             created += 1
 
         for afile in files:
-            # Skip duplicate snapshots on re-scan
-            existing_snap = (
-                session.query(FileSystemSnapshot)
-                .filter(
-                    FileSystemSnapshot.path == str(afile),
-                )
-                .first()
-            )
-            if existing_snap is not None:
-                continue
-            file_stat = afile.stat()
-            snapshot = FileSystemSnapshot(
-                path=str(afile),
-                file_hash=_get_file_hash(afile),
-                file_size=file_stat.st_size,
-                modified_at=datetime.fromtimestamp(file_stat.st_mtime, tz=UTC),
-            )
-            session.add(snapshot)
+            _create_download_snapshot(session, afile)
 
     session.commit()
 
-    # Count new snapshots (those created this session)
     return {"created": created, "skipped": skipped, "removed": 0}
 
 
@@ -223,6 +222,46 @@ def _create_artist_album_track(
     return track
 
 
+def _process_library_file(
+    session: Session,
+    afile: Path,
+    root: Path,
+    counts: dict[str, int],
+    seen_artists: set[str],
+    seen_albums: set[str],
+) -> None:
+    """Process a single audio file during a library scan.
+
+    Creates or retrieves Artist/Album/Track records and updates counts.
+    """
+    album_dir = afile.parent
+    artist_dir = album_dir.parent
+
+    if artist_dir == root:
+        artist_name = "Unknown Artist"
+        album_title = album_dir.name
+    else:
+        artist_name = artist_dir.name
+        album_title = album_dir.name
+
+    track = _create_artist_album_track(
+        session=session,
+        artist_name=artist_name,
+        album_title=album_title,
+        track_path=afile,
+    )
+    counts["tracks"] += 1
+
+    if track.album_id is not None and track.album is not None:
+        album_key = f"{track.album.artist_id}|{album_title}"
+        if album_key not in seen_albums:
+            seen_albums.add(album_key)
+            counts["albums"] += 1
+            if artist_name not in seen_artists:
+                seen_artists.add(artist_name)
+                counts["artists"] += 1
+
+
 def scan_library_root(
     session: Session,
     root_path: str | Path,
@@ -248,7 +287,6 @@ def scan_library_root(
     if not root.is_dir():
         return counts
 
-    # Cache for artist/album lookups to avoid repeated DB queries
     seen_artists: set[str] = set()
     seen_albums: set[str] = set()
     audio_files = [f for f in root.rglob("*") if f.is_file() and _is_audio_file(f)]
@@ -261,35 +299,8 @@ def scan_library_root(
     logger.info("Found {} audio files in {}", total, root)
 
     for idx, afile in enumerate(audio_files, 1):
-        album_dir = afile.parent
-        artist_dir = album_dir.parent
+        _process_library_file(session, afile, root, counts, seen_artists, seen_albums)
 
-        if artist_dir == root:
-            artist_name = "Unknown Artist"
-            album_title = album_dir.name
-        else:
-            artist_name = artist_dir.name
-            album_title = album_dir.name
-
-        track = _create_artist_album_track(
-            session=session,
-            artist_name=artist_name,
-            album_title=album_title,
-            track_path=afile,
-        )
-        counts["tracks"] += 1
-
-        # Track unique artists and albums
-        if track.album_id is not None and track.album is not None:
-            album_key = f"{track.album.artist_id}|{album_title}"
-            if album_key not in seen_albums:
-                seen_albums.add(album_key)
-                counts["albums"] += 1
-                if artist_name not in seen_artists:
-                    seen_artists.add(artist_name)
-                    counts["artists"] += 1
-
-        # Periodic commit and progress logging
         if idx % 100 == 0:
             session.commit()
             logger.info("Scanned {}/{} files ({} tracks)...", idx, total, counts["tracks"])
