@@ -272,6 +272,49 @@ def fetch_album_art_duckduckgo(
     return None
 
 
+def _fetch_album_art_from_sources(
+    album_art_path: Path,
+    artist: str,
+    album: str,
+    sources: list[str],
+    lastfm_api_key: str | None,
+    max_width: int,
+    max_height: int,
+    aspect_tolerance_percentage: int,
+) -> tuple[bool, str | None]:
+    """Try each album art source in order, returning (success, source_used)."""
+    for source in sources:
+        data: bytes | None = None
+        if source == "duckduckgo":
+            data = fetch_album_art_duckduckgo(artist, album)
+        elif source == "musicbrainz":
+            data = fetch_album_art_musicbrainz(artist, album)
+        elif source == "lastfm":
+            data = fetch_album_art_lastfm(artist, album, lastfm_api_key)
+
+        if data is not None:
+            processed = validate_and_resize_image(data, max_width, max_height, aspect_tolerance_percentage)
+            if processed is not None:
+                album_art_path.write_bytes(processed)
+                return (True, source)
+    return (False, None)
+
+
+def _fetch_fanart_from_sources(
+    fanart_path: Path,
+    artist: str,
+    lastfm_api_key: str | None,
+) -> bool:
+    """Fetch fanart from available sources. Returns True on success."""
+    if not lastfm_api_key:
+        return False
+    data = fetch_fanart_lastfm(artist, lastfm_api_key)
+    if data is not None:
+        fanart_path.write_bytes(data)
+        return True
+    return False
+
+
 def download_artwork_for_album(
     album_dir: str,
     artist: str,
@@ -328,12 +371,11 @@ def download_artwork_for_album(
     if sources is None:
         sources = ["musicbrainz", "lastfm"]
 
-    # Early exit if all artwork is disabled
     if not download_album_art and not download_fanart:
         logger.info("Artwork downloading disabled for '{} — {}'", artist, album)
         return {"album_art": None, "fanart": None, "source_used": None}
 
-    # Try to fetch album art from configured sources in order
+    # Album art
     if not download_album_art:
         result["album_art"] = None
         result["source_used"] = None
@@ -341,34 +383,26 @@ def download_artwork_for_album(
         result["album_art"] = True
         result["source_used"] = "cached"
     else:
-        for source in sources:
-            data: bytes | None = None
-            if source == "duckduckgo":
-                data = fetch_album_art_duckduckgo(artist, album)
-            elif source == "musicbrainz":
-                data = fetch_album_art_musicbrainz(artist, album)
-            elif source == "lastfm":
-                data = fetch_album_art_lastfm(artist, album, lastfm_api_key)
+        success, source_used = _fetch_album_art_from_sources(
+            album_art_path,
+            artist,
+            album,
+            sources,
+            lastfm_api_key,
+            max_width,
+            max_height,
+            aspect_tolerance_percentage,
+        )
+        result["album_art"] = success
+        result["source_used"] = source_used
 
-            if data is not None:
-                # Validate and resize before saving
-                processed = validate_and_resize_image(data, max_width, max_height, aspect_tolerance_percentage)
-                if processed is not None:
-                    album_art_path.write_bytes(processed)
-                    result["album_art"] = True
-                    result["source_used"] = source
-                    break
-
-    # Try to fetch fanart from Last.fm (only if API key is available)
+    # Fanart
     if not download_fanart:
         result["fanart"] = None
     elif fanart_path.exists():
         result["fanart"] = True
-    elif lastfm_api_key:
-        data = fetch_fanart_lastfm(artist, lastfm_api_key)
-        if data is not None:
-            fanart_path.write_bytes(data)
-            result["fanart"] = True
+    else:
+        result["fanart"] = _fetch_fanart_from_sources(fanart_path, artist, lastfm_api_key)
 
     return result
 
