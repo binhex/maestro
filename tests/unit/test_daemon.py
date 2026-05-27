@@ -150,10 +150,14 @@ class TestRunPipelineDryRun:
 
         config = Config(dry_run=True)
         config.download_roots = [RootEntry(path="/dl", type="download", enabled=True)]
-        config.library_roots = [RootEntry(
-            path="/lib", type="library", enabled=True,
-            destination_pattern="{artist}/{album}",
-        )]
+        config.library_roots = [
+            RootEntry(
+                path="/lib",
+                type="library",
+                enabled=True,
+                destination_pattern="{artist}/{album}",
+            )
+        ]
         config.quality.delete_replaced = False
 
         session = MagicMock()
@@ -161,9 +165,7 @@ class TestRunPipelineDryRun:
 
         assert mock_import.called, "import_downloads should have been called"
         call_args, call_kwargs = mock_import.call_args
-        assert call_kwargs.get("dry_run") is True, (
-            f"Expected dry_run=True, got kwargs={call_kwargs}"
-        )
+        assert call_kwargs.get("dry_run") is True, f"Expected dry_run=True, got kwargs={call_kwargs}"
 
 
 # ===================================================================

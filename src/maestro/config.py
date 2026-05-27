@@ -247,6 +247,7 @@ def _migrate_v2_to_v3(data: dict) -> None:
     artwork.setdefault("download_album_art", True)
     artwork.setdefault("download_fanart", True)
 
+
 _MIGRATIONS[2] = _migrate_v2_to_v3
 
 

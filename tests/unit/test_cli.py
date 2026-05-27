@@ -547,7 +547,11 @@ class TestCliDryRun:
     @patch("maestro.cli.get_engine")
     @patch("maestro.cli.init_db")
     def test_import_dry_run_flag_overrides_config(
-        self, mock_init_db, mock_get_engine, mock_create_session, mock_load_config,
+        self,
+        mock_init_db,
+        mock_get_engine,
+        mock_create_session,
+        mock_load_config,
     ) -> None:
         """Passing --dry-run to import should override config.dry_run=False."""
         from unittest.mock import MagicMock
@@ -576,16 +580,17 @@ class TestCliArtworkDisabled:
 
     def test_artwork_early_exit_when_both_disabled(self) -> None:
         """When both download_album_art and download_fanart are False, artwork command should exit early."""
-        from unittest.mock import MagicMock
 
         from maestro.config import ArtworkConfig, Config
 
         config = Config(artwork=ArtworkConfig(download_album_art=False, download_fanart=False))
 
-        with patch("maestro.cli.load_config", return_value=config), \
-             patch("maestro.cli.create_session"), \
-             patch("maestro.cli.get_engine"), \
-             patch("maestro.cli.init_db"):
+        with (
+            patch("maestro.cli.load_config", return_value=config),
+            patch("maestro.cli.create_session"),
+            patch("maestro.cli.get_engine"),
+            patch("maestro.cli.init_db"),
+        ):
             result = self.runner.invoke(cli, ["artwork"])
             assert "disabled" in result.output.lower()
 
@@ -602,10 +607,12 @@ class TestCliConfigDisplay:
 
         from maestro.config import Config
 
-        with patch("maestro.cli.load_config") as mock_load, \
-             patch("maestro.cli.create_session") as mock_session, \
-             patch("maestro.cli.get_engine"), \
-             patch("maestro.cli.init_db"):
+        with (
+            patch("maestro.cli.load_config") as mock_load,
+            patch("maestro.cli.create_session") as mock_session,
+            patch("maestro.cli.get_engine"),
+            patch("maestro.cli.init_db"),
+        ):
             mock_load.return_value = Config()
             mock_session.return_value = MagicMock()
 

@@ -1057,5 +1057,3 @@ class TestDownloadArtworkForAlbumDisable:
         assert result["album_art"] is None
         assert result["fanart"] is None
         assert result["source_used"] is None
-
-

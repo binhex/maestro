@@ -614,6 +614,4 @@ class TestImportDownloadsDryRun:
         )
 
         replace_actions = [a for a in result.get("actions", []) if a.startswith("Would replace")]
-        assert len(replace_actions) > 0, (
-            f"Expected 'Would replace' actions, got: {result.get('actions', [])}"
-        )
+        assert len(replace_actions) > 0, f"Expected 'Would replace' actions, got: {result.get('actions', [])}"

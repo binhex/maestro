@@ -461,7 +461,7 @@ Add early checks after the variables setup block (near the top of the function b
     else:
         # ... existing album art logic ...
 
-    # Skip fanart if disabled  
+    # Skip fanart if disabled
     if not download_fanart:
         result["fanart"] = None
     else:
