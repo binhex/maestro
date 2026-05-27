@@ -265,7 +265,12 @@ def import_downloads(
                 }
                 relative_path = render_path(variables, destination_pattern)
                 full_target = (dest_root / relative_path).resolve()
-                actions.append(f"Would move: {afile} \u2192 {full_target}")
+                if full_target.exists():
+                    actions.append(
+                        f"Would replace: {afile} \u2192 {full_target}"
+                    )
+                else:
+                    actions.append(f"Would move: {afile} \u2192 {full_target}")
 
         counts["dry_run"] = True
         counts["actions"] = actions

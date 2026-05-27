@@ -585,3 +585,35 @@ class TestImportDownloadsDryRun:
         )
 
         assert result["imported"] == 0
+
+    def test_import_downloads_dry_run_reports_replacement(
+        self,
+        engine,
+        download_dir,
+        tmp_path,
+    ) -> None:
+        """When the target library file already exists, dry-run should say 'Would replace:'."""
+        _seed_identified_download(engine, str(download_dir))
+        session = create_session(engine)
+
+        # Create a library root with a pre-existing file at the target path
+        lib_root = tmp_path / "library"
+        # Expected target path: {artist}/{album}/{filename}.{ext}
+        target_dir = lib_root / "Some Artist" / "Some Album"
+        target_dir.mkdir(parents=True)
+        (target_dir / "track01.flac").write_bytes(b"existing")
+        (target_dir / "track02.flac").write_bytes(b"existing")
+
+        lib_root_str = str(lib_root)
+        result = import_downloads(
+            session=session,
+            destination_root=lib_root_str,
+            destination_pattern="{artist}/{album}/{filename}.{ext}",
+            move=True,
+            dry_run=True,
+        )
+
+        replace_actions = [a for a in result.get("actions", []) if a.startswith("Would replace")]
+        assert len(replace_actions) > 0, (
+            f"Expected 'Would replace' actions, got: {result.get('actions', [])}"
+        )
