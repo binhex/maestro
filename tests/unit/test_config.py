@@ -35,6 +35,36 @@ class TestConfigDataclass:
         assert config.library_roots[0].path == "/music/lib"
         assert config.download_roots[0].path == "/downloads"
 
+    def test_default_dry_run_is_false(self) -> None:
+        config = Config()
+        assert config.dry_run is False
+
+    def test_default_download_album_art_is_true(self) -> None:
+        config = ArtworkConfig()
+        assert config.download_album_art is True
+
+    def test_default_download_fanart_is_true(self) -> None:
+        config = ArtworkConfig()
+        assert config.download_fanart is True
+
+    def test_custom_dry_run_from_config(self) -> None:
+        config = Config(dry_run=True)
+        assert config.dry_run is True
+
+    def test_custom_artwork_disables(self) -> None:
+        config = ArtworkConfig(download_album_art=False, download_fanart=False)
+        assert config.download_album_art is False
+        assert config.download_fanart is False
+
+    def test_post_init_converts_dict_with_new_fields(self) -> None:
+        """__post_init__ should handle the new artwork fields from dict."""
+        config = Config(
+            artwork={"download_album_art": False, "download_fanart": False},
+        )
+        assert isinstance(config.artwork, ArtworkConfig)
+        assert config.artwork.download_album_art is False
+        assert config.artwork.download_fanart is False
+
 
 class TestLoadConfig:
     def test_load_from_file(self, tmp_path: Path) -> None:

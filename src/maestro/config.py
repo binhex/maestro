@@ -13,7 +13,7 @@ from maestro.utils import get_project_root
 
 # Current config schema version. Increment when fields are added or changed.
 # Migration functions in _MIGRATIONS handle upgrading from older versions.
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 
 _DEFAULT_CONFIG_PATHS = [
     os.environ.get("MAESTRO_CONFIG", ""),
@@ -47,6 +47,8 @@ class QualityConfig:
 class ArtworkConfig:
     """Artwork-related configuration."""
 
+    download_album_art: bool = True
+    download_fanart: bool = True
     album_art: str = "cover.jpg"
     fanart: str = "fanart.jpg"
     skip_if_exists: bool = True
@@ -70,6 +72,7 @@ class SchedulerConfig:
 class Config:
     """Top-level Maestro configuration."""
 
+    dry_run: bool = False
     library_roots: list[RootEntry] = field(default_factory=list)
     download_roots: list[RootEntry] = field(default_factory=list)
     quality: QualityConfig = field(default_factory=QualityConfig)
@@ -155,6 +158,7 @@ def _default_config_dict() -> dict:
     """Return the default config as a plain dict for comparison."""
     return {
         "version": CONFIG_VERSION,
+        "dry_run": False,
         "library_roots": [
             {
                 "path": "/path/to/music/library",
@@ -168,6 +172,8 @@ def _default_config_dict() -> dict:
         ],
         "quality": {"min_acceptable": 3, "delete_replaced": False},
         "artwork": {
+            "download_album_art": True,
+            "download_fanart": True,
             "album_art": "cover.jpg",
             "fanart": "fanart.jpg",
             "skip_if_exists": True,
@@ -231,6 +237,16 @@ def _migrate_v1_to_v2(data: dict) -> None:
 
 
 _MIGRATIONS[1] = _migrate_v1_to_v2
+
+
+def _migrate_v2_to_v3(data: dict) -> None:
+    """Migration from version 2 to 3: add dry_run, download_album_art, download_fanart."""
+    data.setdefault("dry_run", False)
+    artwork = data.setdefault("artwork", {})
+    artwork.setdefault("download_album_art", True)
+    artwork.setdefault("download_fanart", True)
+
+_MIGRATIONS[2] = _migrate_v2_to_v3
 
 
 def _upgrade_config(data: dict, file_path: str) -> dict:
