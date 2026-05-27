@@ -72,6 +72,65 @@ def is_due(cron_expression: str, current_time: datetime | None = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _run_scan_phase(config: Config, session: Any, result: dict[str, Any]) -> None:
+    """Run the scan phase: walk enabled download roots."""
+    from maestro.scanner import scan_download_root  # noqa: PLC0415
+
+    download_roots = [r for r in config.download_roots if r.enabled]
+    if not download_roots:
+        logger.info("No enabled download roots — scan phase skipped")
+        return
+
+    for entry in download_roots:
+        try:
+            scan_result = scan_download_root(session, entry.path, pattern=getattr(entry, "pattern", None))
+            result["scan"].append({"root": entry.path, **scan_result})
+            logger.info("Scanned {}: {}", entry.path, scan_result)
+        except Exception:  # noqa: BLE001
+            logger.exception("Scan failed for {}", entry.path)
+            result["pipeline"]["errors"] += 1
+
+
+def _run_identify_phase(session: Any, result: dict[str, Any]) -> None:
+    """Run the identify phase: identify newly-discovered downloads."""
+    from maestro.identifier import identify_downloads  # noqa: PLC0415
+
+    try:
+        identified = identify_downloads(session)
+        result["identified"] = len(identified)
+        logger.info("Identified {} downloads", len(identified))
+    except Exception:  # noqa: BLE001
+        logger.exception("Identification phase failed")
+        result["pipeline"]["errors"] += 1
+
+
+def _run_import_phase(config: Config, session: Any, result: dict[str, Any]) -> None:
+    """Run the import phase: import identified downloads into the library."""
+    from maestro.organizer import import_downloads  # noqa: PLC0415
+
+    library_roots = [r for r in config.library_roots if r.enabled]
+    if not library_roots:
+        logger.info("No enabled library roots — import phase skipped")
+        return
+
+    lib_root = library_roots[0]
+    dest_pattern = lib_root.destination_pattern or "{artist}/{album}/{filename}.{ext}"
+    try:
+        import_result = import_downloads(
+            session=session,
+            destination_root=lib_root.path,
+            destination_pattern=dest_pattern,
+            move=True,
+            delete_replaced=config.quality.delete_replaced,
+            dry_run=config.dry_run,
+        )
+        result["imported"] = import_result
+        logger.info("Imported: {}", import_result)
+    except Exception:  # noqa: BLE001
+        logger.exception("Import phase failed")
+        result["pipeline"]["errors"] += 1
+
+
 def run_pipeline(config: Config | None, session: Any) -> dict[str, Any]:
     """Run the full scan → identify → import pipeline.
 
@@ -95,10 +154,6 @@ def run_pipeline(config: Config | None, session: Any) -> dict[str, Any]:
         - ``imported`` — dict of import counts
         - ``pipeline`` — overall summary (errors, success flag)
     """
-    from maestro.identifier import identify_downloads  # noqa: PLC0415
-    from maestro.organizer import import_downloads  # noqa: PLC0415
-    from maestro.scanner import scan_download_root  # noqa: PLC0415
-
     result: dict[str, Any] = {
         "scan": [],
         "identified": 0,
@@ -110,51 +165,9 @@ def run_pipeline(config: Config | None, session: Any) -> dict[str, Any]:
         logger.info("No config provided — pipeline skipped")
         return result
 
-    # --- 1. Scan download roots ---
-    download_roots = [r for r in config.download_roots if r.enabled]
-    if not download_roots:
-        logger.info("No enabled download roots — scan phase skipped")
-    else:
-        for entry in download_roots:
-            try:
-                scan_result = scan_download_root(session, entry.path, pattern=getattr(entry, "pattern", None))
-                result["scan"].append({"root": entry.path, **scan_result})
-                logger.info("Scanned {}: {}", entry.path, scan_result)
-            except Exception:  # noqa: BLE001
-                logger.exception("Scan failed for {}", entry.path)
-                result["pipeline"]["errors"] += 1
-
-    # --- 2. Identify downloads ---
-    try:
-        identified = identify_downloads(session)
-        result["identified"] = len(identified)
-        logger.info("Identified {} downloads", len(identified))
-    except Exception:  # noqa: BLE001
-        logger.exception("Identification phase failed")
-        result["pipeline"]["errors"] += 1
-
-    # --- 3. Import identified downloads ---
-    library_roots = [r for r in config.library_roots if r.enabled]
-    if not library_roots:
-        logger.info("No enabled library roots — import phase skipped")
-    else:
-        # Use the first enabled library root
-        lib_root = library_roots[0]
-        dest_pattern = lib_root.destination_pattern or "{artist}/{album}/{filename}.{ext}"
-        try:
-            import_result = import_downloads(
-                session=session,
-                destination_root=lib_root.path,
-                destination_pattern=dest_pattern,
-                move=True,
-                delete_replaced=config.quality.delete_replaced,
-                dry_run=config.dry_run,
-            )
-            result["imported"] = import_result
-            logger.info("Imported: {}", import_result)
-        except Exception:  # noqa: BLE001
-            logger.exception("Import phase failed")
-            result["pipeline"]["errors"] += 1
+    _run_scan_phase(config, session, result)
+    _run_identify_phase(session, result)
+    _run_import_phase(config, session, result)
 
     result["pipeline"]["success"] = result["pipeline"]["errors"] == 0
     return result
