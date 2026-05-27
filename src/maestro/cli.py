@@ -297,8 +297,14 @@ def check(ctx: click.Context) -> None:
 
 
 @cli.command(name="import")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Simulate import without making changes.",
+)
 @click.pass_context
-def import_(ctx: click.Context) -> None:
+def import_(ctx: click.Context, dry_run: bool) -> None:
     """Import identified downloads into the music library."""
     from maestro.organizer import import_downloads
 
@@ -311,6 +317,7 @@ def import_(ctx: click.Context) -> None:
 
         lib_root = library_roots[0]
         dest_pattern = lib_root.destination_pattern or "{artist}/{album}/{filename}.{ext}"
+        effective_dry_run = dry_run or config.dry_run
 
         click.echo(f"Importing downloads into {lib_root.path}...")
         result = import_downloads(
@@ -319,13 +326,24 @@ def import_(ctx: click.Context) -> None:
             destination_pattern=dest_pattern,
             move=True,
             delete_replaced=config.quality.delete_replaced,
+            dry_run=effective_dry_run,
         )
-        click.echo(
-            f"  imported={result['imported']} "
-            f"skipped={result['skipped']} "
-            f"replaced={result['replaced']} "
-            f"errors={result['errors']}",
-        )
+        if effective_dry_run:
+            click.echo("--- DRY RUN --- No files were changed ---")
+            for action in result.get("actions", []):
+                click.echo(f"  {action}")
+            click.echo(
+                f"Summary: would import={result.get('imported', 0)} "
+                f"would skip={result.get('skipped', 0)} "
+                f"would replace={result.get('replaced', 0)}",
+            )
+        else:
+            click.echo(
+                f"  imported={result['imported']} "
+                f"skipped={result['skipped']} "
+                f"replaced={result['replaced']} "
+                f"errors={result['errors']}",
+            )
     finally:
         session.close()
 
@@ -409,6 +427,10 @@ def artwork(ctx: click.Context) -> None:
 
     config, _engine, session = _setup(ctx)
     try:
+        if not config.artwork.download_album_art and not config.artwork.download_fanart:
+            click.echo("Artwork downloading is disabled in config.")
+            return
+
         albums = session.query(Album).join(Artist, Album.artist_id == Artist.id).all()
 
         if not albums:
@@ -440,6 +462,8 @@ def artwork(ctx: click.Context) -> None:
                 album=album.title,
                 album_art_filename=config.artwork.album_art,
                 fanart_filename=config.artwork.fanart,
+                download_album_art=config.artwork.download_album_art,
+                download_fanart=config.artwork.download_fanart,
                 lastfm_api_key=api_key,
                 sources=sources,
                 max_width=config.artwork.width,
@@ -463,13 +487,23 @@ def artwork(ctx: click.Context) -> None:
 
 
 @cli.command()
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Run daemon pipeline in dry-run mode (simulate import without changes).",
+)
 @click.pass_context
-def daemon(ctx: click.Context) -> None:
+def daemon(ctx: click.Context, dry_run: bool) -> None:
     """Run the Maestro daemon (scheduled pipeline execution)."""
     from maestro.daemon import Daemon
 
     config, _engine, session = _setup(ctx)
     session.close()
+
+    # Override config.dry_run if --dry-run flag is set
+    if dry_run:
+        config.dry_run = True
 
     click.echo("Starting Maestro daemon...")
     db_path = ctx.obj.get("database_path") if ctx.obj else None
@@ -508,6 +542,9 @@ def show_config(ctx: click.Context) -> None:
         f"  Artwork skip if exists: {config.artwork.skip_if_exists}",
     )
     click.echo(f"  Artwork sources: {config.artwork.sources}")
+    click.echo(f"  Artwork download album art: {config.artwork.download_album_art}")
+    click.echo(f"  Artwork download fanart: {config.artwork.download_fanart}")
+    click.echo(f"  Dry run: {config.dry_run}")
     click.echo(f"  Scheduler schedule: {config.scheduler.schedule}")
     click.echo(
         f"  Scheduler run on start: {config.scheduler.run_on_start}",

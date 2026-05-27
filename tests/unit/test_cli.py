@@ -229,6 +229,7 @@ class TestImport:
         mock_lib_root.destination_pattern = None
 
         mock_config = Mock()
+        mock_config.dry_run = False
         mock_config.library_roots = [mock_lib_root]
         mock_config.quality.delete_replaced = False
 
@@ -521,3 +522,94 @@ class TestLastfmApiKey:
         with patch.dict("os.environ", clear=True):
             result = maestro.cli._lastfm_api_key(config)
             assert result is None
+
+
+class TestCliDryRun:
+    """Tests for --dry-run CLI flags."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    def test_import_has_dry_run_option(self) -> None:
+        """--help on import should show --dry-run."""
+        result = self.runner.invoke(cli, ["import", "--help"])
+        assert result.exit_code == 0
+        assert "--dry-run" in result.output
+
+    def test_daemon_has_dry_run_option(self) -> None:
+        """--help on daemon should show --dry-run."""
+        result = self.runner.invoke(cli, ["daemon", "--help"])
+        assert result.exit_code == 0
+        assert "--dry-run" in result.output
+
+    @patch("maestro.cli.load_config")
+    @patch("maestro.cli.create_session")
+    @patch("maestro.cli.get_engine")
+    @patch("maestro.cli.init_db")
+    def test_import_dry_run_flag_overrides_config(
+        self, mock_init_db, mock_get_engine, mock_create_session, mock_load_config,
+    ) -> None:
+        """Passing --dry-run to import should override config.dry_run=False."""
+        from unittest.mock import MagicMock
+
+        from maestro.config import Config
+
+        mock_load_config.return_value = Config(
+            dry_run=False,
+            library_roots=[MagicMock(path="/music/lib", enabled=True)],
+        )
+        mock_session = MagicMock()
+        mock_create_session.return_value = mock_session
+
+        with patch("maestro.organizer.import_downloads") as mock_import:
+            self.runner.invoke(cli, ["import", "--dry-run"])
+            assert mock_import.called, "import_downloads should have been called"
+            call_kwargs = mock_import.call_args[1] if len(mock_import.call_args) > 1 else {}
+            assert call_kwargs.get("dry_run") is True
+
+
+class TestCliArtworkDisabled:
+    """Tests for artwork disable config affecting CLI artwork command."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    def test_artwork_early_exit_when_both_disabled(self) -> None:
+        """When both download_album_art and download_fanart are False, artwork command should exit early."""
+        from unittest.mock import MagicMock
+
+        from maestro.config import ArtworkConfig, Config
+
+        config = Config(artwork=ArtworkConfig(download_album_art=False, download_fanart=False))
+
+        with patch("maestro.cli.load_config", return_value=config), \
+             patch("maestro.cli.create_session"), \
+             patch("maestro.cli.get_engine"), \
+             patch("maestro.cli.init_db"):
+            result = self.runner.invoke(cli, ["artwork"])
+            assert "disabled" in result.output.lower()
+
+
+class TestCliConfigDisplay:
+    """Tests for 'maestro config' display output."""
+
+    def setup_method(self) -> None:
+        self.runner = CliRunner()
+
+    def test_config_shows_new_fields(self) -> None:
+        """The config command should display the new config fields."""
+        from unittest.mock import MagicMock
+
+        from maestro.config import Config
+
+        with patch("maestro.cli.load_config") as mock_load, \
+             patch("maestro.cli.create_session") as mock_session, \
+             patch("maestro.cli.get_engine"), \
+             patch("maestro.cli.init_db"):
+            mock_load.return_value = Config()
+            mock_session.return_value = MagicMock()
+
+            result = self.runner.invoke(cli, ["config"])
+            assert "Dry run" in result.output
+            assert "download album art" in result.output.lower() or "download_album_art" in result.output
+            assert "download fanart" in result.output.lower() or "download_fanart" in result.output
