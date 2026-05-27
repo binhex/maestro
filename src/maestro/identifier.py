@@ -428,6 +428,15 @@ def identify_download(download: Download, session: Session) -> None:
         return
 
     artist_name, album_title, year, genre, match_type = _identify_tags_or_heuristic(download)
+
+    # After heuristic: if artist is still None, use the parent directory name.
+    # This handles {artist}/{album} download structures where the folder
+    # name is only the album and the artist is the parent directory.
+    # This must run BEFORE _resolve_identified_album so that the library
+    # match can use the resolved artist name.
+    if artist_name is None and dl_path.parent.name and dl_path.parent.name != dl_path.name:
+        artist_name = dl_path.parent.name
+
     identified_album_id, year, genre, artist_name, match_type = _resolve_identified_album(
         session,
         artist_name,
@@ -436,12 +445,6 @@ def identify_download(download: Download, session: Session) -> None:
         genre,
         match_type,
     )
-
-    # After heuristic: if artist is still None, use the parent directory name.
-    # This handles {artist}/{album} download structures where the folder
-    # name is only the album and the artist is the parent directory.
-    if artist_name is None and dl_path.parent.name and dl_path.parent.name != dl_path.name:
-        artist_name = dl_path.parent.name
 
     download.identified_artist = artist_name
     download.identified_album = album_title or None

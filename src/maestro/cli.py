@@ -60,8 +60,13 @@ def _run_pipeline_inline(config: Config, dry_run: bool, db_path: str | None = No
 
     config.dry_run = dry_run or config.dry_run
 
+    from pathlib import Path as _Path
+
     project_root = get_project_root()
     db_path = db_path or os.environ.get("MAESTRO_DB", "") or str(project_root / "db" / "maestro.db")
+    db_p = _Path(db_path)
+    if db_p.is_dir() or not db_p.suffix:
+        db_path = str(db_p / "maestro.db")
     engine = get_engine(db_path)
     init_db(engine)
     session = create_session(engine)
